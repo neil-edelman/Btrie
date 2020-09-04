@@ -97,28 +97,27 @@ struct block {
 	union leaf { const char *leaf; size_t block_idx; } leaves[257];
 };
 MIN_ARRAY(block, struct block)
-struct trie {
-	union leaf root; /* blocks.size ? root.block_idx : root.leaf */
-	struct block_array blocks;
-};
+struct trie { struct block_array blocks; };
 #ifndef TRIE_IDLE /* <!-- !zero */
-#define TRIE_IDLE { { 0 }, ARRAY_IDLE }
+#define TRIE_IDLE { ARRAY_IDLE }
 #endif /* !zero --> */
 
 
 #define TRIE_STR_IS_BIT(str, i) (str[i >> 3] & (128 >> (i & 7)))
+#define TRIE_STR_SET(str, i) (str[i >> 3] |= 128 >> (i & 7))
+#define TRIE_STR_CLEAR(str, i) (str[i >> 3] &= ~(128 >> (i & 7)))
 
 /** @return Whether `a` and `b` are equal up to the minimum. */
-static int trie_is_prefix(const char *a, const char *b) {
+/*static int trie_is_prefix(const char *a, const char *b) {
 	for( ; ; a++, b++) {
 		if(*a == '\0') return 1;
 		if(*a != *b) return *b == '\0';
 	}
-}
+}*/
 
 
 static void trie(struct trie *const t)
-	{ assert(t), t->root.leaf = 0, block_array(&t->blocks); }
+	{ assert(t), block_array(&t->blocks); }
 
 static void trie_(struct trie *const t)
 	{ assert(t), block_array_(&t->blocks), trie(t); }
@@ -127,10 +126,9 @@ static const char *trie_match(const struct trie *const t, const char *key) {
 	size_t key_byte, skip_bit, skip_byte;
 	struct block *block;
 	assert(t && key);
-	if(!t->blocks.size) return t->root.leaf; /* [0,1] */
-	assert(t->root.block_idx < t->blocks.size); /* [2,] */
+	if(!t->blocks.size) return 0;
 	skip_bit = key_byte = 0;
-	for(block = t->blocks.data + t->root.block_idx; ; ) {
+	for(block = t->blocks.data; ; ) {
 		unsigned n0 = 0, n1 = block->branch_size, i = 0;
 		struct branch *branch;
 		/* Block lookup. */
@@ -159,13 +157,13 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
  does not check for the end of the string. @return Success. @order \O(|`trie`|)
  @throws[realloc, ERANGE] */
 static int trie_add_unique(struct trie *const t, const char *const key) {
-	const char *displace = 0;
 	struct block *bl;
 	assert(t && key);
-	if(!t->blocks.size) { /* [0, 1] */
-		if(!(displace = t->root.leaf)) return t->root.leaf = key, 1;
+	if(!t->blocks.size) { /* [0]->[1] */
 		if(!(bl = block_array_new(&t->blocks))) return 0;
-		bl->branch_size = 1;
+		bl->branch_size = 0;
+		TRIE_STR_CLEAR(bl->bmp, 0), bl->leaves[0].leaf = key;
+		return 1;
 	}
 	assert(0);
 	return 0;
@@ -221,12 +219,7 @@ static int trie_graph(const struct trie *const t, const char *const fn) {
 		"\tedge [color=royalblue];\n"
 		"\tnode [shape=box, style=filled, fillcolor=pink];\n");
 	if(!t->blocks.size) {
-		if(!t->root.leaf) {
-			fprintf(fp, "\tlabel=\"empty\";\n");
-		} else {
-			fprintf(fp, "\troot [label=\"%s\", fillcolor=lightsteelblue]\n",
-				t->root.leaf);
-		}
+		fprintf(fp, "\tlabel=\"empty\";\n");
 	} else {
 		unsigned bl, lf;
 		for(bl = 0; bl < t->blocks.size; bl++) {
