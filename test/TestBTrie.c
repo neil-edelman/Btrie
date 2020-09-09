@@ -37,7 +37,7 @@ static void test_basic_trie_str(void) {
 	size_t i;
 #endif
 
-	for(i = 0; i < /*words_size*/3; i++) {
+	for(i = 0; i < /*words_size*/30; i++) {
 		w = parole[i];
 		s = trie_get(&t, w), assert(!s);
 		r = trie_add(&t, w), assert(r);

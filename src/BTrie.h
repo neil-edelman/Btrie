@@ -103,9 +103,10 @@ struct trie { struct block_array blocks; };
 #endif /* !zero --> */
 
 
-#define TRIE_STR_IS_BIT(str, i) (str[i >> 3] & (128 >> (i & 7)))
-#define TRIE_STR_SET(str, i) (str[i >> 3] |= 128 >> (i & 7))
-#define TRIE_STR_CLEAR(str, i) (str[i >> 3] &= ~(128 >> (i & 7)))
+#define TRIESTR_IS_BIT(a, i) (a[i >> 3] & (128 >> (i & 7)))
+#define TRIESTR_BIT_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
+#define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
+#define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
 
 /** @return Whether `a` and `b` are equal up to the minimum. */
 /*static int trie_is_prefix(const char *a, const char *b) {
@@ -138,11 +139,11 @@ static const char *trie_match(const struct trie *const t, const char *key) {
 				+ n0)->skip) >> 3; key_byte < skip_byte; key_byte++)
 				if(key[key_byte] == '\0') return 0;
 			/* Descend left or right based on bit of the key. */
-			if(!TRIE_STR_IS_BIT(key, skip_bit)) n1 = ++n0 + branch->left;
+			if(!TRIESTR_IS_BIT(key, skip_bit)) n1 = ++n0 + branch->left;
 			else n0 += branch->left + 1, i += branch->left + 1;
 		}
 		assert(n0 == n1 && i <= block->branch_size);
-		if(!TRIE_STR_IS_BIT(block->bmp, i)) return block->leaves[i].leaf;
+		if(!TRIESTR_IS_BIT(block->bmp, i)) return block->leaves[i].leaf;
 		assert(block->leaves[i].block_idx < t->blocks.size);
 		block = t->blocks.data + block->leaves[i].block_idx;
 	}
@@ -157,12 +158,58 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
  does not check for the end of the string. @return Success. @order \O(|`trie`|)
  @throws[realloc, ERANGE] */
 static int trie_add_unique(struct trie *const t, const char *const key) {
-	struct block *bl;
+	struct block *blk, *blk1;
+	size_t bit = 0, bit0 = 0, bit1;
 	assert(t && key);
+	printf("add %s\n", key);
 	if(!t->blocks.size) { /* [0]->[1] */
-		if(!(bl = block_array_new(&t->blocks))) return 0;
-		bl->branch_size = 0;
-		TRIE_STR_CLEAR(bl->bmp, 0), bl->leaves[0].leaf = key;
+		if(!(blk = block_array_new(&t->blocks))) return 0;
+		blk->branch_size = 0;
+		return TRIESTR_CLEAR(blk->bmp, 0), blk->leaves[0].leaf = key, printf("first %u\n", blk->branch_size), 1;
+	}
+	/* [1,254]->[2,255] */
+	for(blk = t->blocks.data, blk1 = blk + t->blocks.size; ; ) {
+		struct branch *branch;
+		unsigned br0 = 0, br1 = blk->branch_size, i = 0, left;
+		const char **leaf;
+		const char *br0_key;
+		assert(br1 < 255); /* fail */
+		/* Branch from internal node. */
+		while(branch = blk->branches + br0, br0_key = blk->leaves[i].leaf,
+			br0 < br1) {
+			assert(!TRIESTR_IS_BIT(blk->bmp, i)); /* fail */
+			for(bit1 = bit + branch->skip; bit < bit1; bit++)
+				if(TRIESTR_BIT_DIFF(key, br0_key, bit)) goto insert;
+			bit0 = bit1, bit++;
+			if(TRIESTR_IS_BIT(key, bit))
+				branch->left++, br1 = br0++ + branch->left + 1;
+			else
+				br0 += branch->left + 1, i += branch->left + 1;
+		}
+		/* Branch from leaf. */
+		while(!TRIESTR_BIT_DIFF(key, br0_key, bit)) bit++;
+insert:
+		assert(br0 <= br1 && br1 <= blk->branch_size && br0_key
+			&& i <= (unsigned)blk->branch_size + 1 && !br0 == !bit0
+			&& TRIESTR_BIT_DIFF(key, br0_key, bit));
+		/* This goes to a new sub-block. */
+		if(TRIESTR_IS_BIT(blk->bmp, i)) { assert(0); /* fail */ continue; }
+		/* How many left entries are there to move, before or after. */
+		if(TRIESTR_IS_BIT(key, bit)) left = br1 - br0, i += left + 1, printf("%s is after %s\n", key, br0_key);
+		else left = 0, printf("%s is before %s\n", key, br0_key);
+		/* Insert leaf-and-branch pair. */
+		leaf = &blk->leaves[i].leaf;
+		memmove(leaf + 1, leaf, sizeof *leaf * (blk->branch_size + 1 - i));
+		*leaf = key;
+		branch = blk->branches + br0;
+		if(br0 != br1) { /* Split the skip value with the existing branch. */
+			assert(bit0 + branch->skip >= bit + !br0);
+			branch->skip += bit0 - bit - !br0;
+		}
+		memmove(branch + 1, branch, sizeof *branch * (blk->branch_size - br0));
+		branch->left = left;
+		branch->skip = bit - bit0 - !!br0;
+		blk->branch_size++;
 		return 1;
 	}
 	assert(0);
@@ -215,9 +262,10 @@ static int trie_graph(const struct trie *const t, const char *const fn) {
 	assert(t && fn);
 	if(!(fp = fopen(fn, "w"))) goto finally;
 	fprintf(fp, "digraph {\n"
-		"\trankdir=LR;\n"
-		"\tedge [color=royalblue];\n"
-		"\tnode [shape=box, style=filled, fillcolor=pink];\n");
+		"\trankdir=TB;\n"
+		/*"\tedge [color=royalblue];\n"
+		"\tnode [shape=box, style=filled, fillcolor=pink];\n"*/
+		"\tnode [shape = none, fillcolor = none];\n");
 	if(!t->blocks.size) {
 		fprintf(fp, "\tlabel=\"empty\";\n");
 	} else {
