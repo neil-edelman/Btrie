@@ -20,11 +20,11 @@
 /** Specific test for str. */
 static void test_basic_trie_str(void) {
 	extern const char *const parole[];
-	extern const size_t parole_size;
+	/*extern const size_t parole_size;*/
 	struct trie t = TRIE_IDLE;
-	const char *words[] = { "aaaa", "aaab", "a", "foo", "bar", "baz", "qux",
-		"quux", "foos", "f" }, *w, *s;
-	const size_t words_size = sizeof words / sizeof *words;
+	const char /**words[] = { "aaaa", "aaab", "a", "foo", "bar", "baz", "qux",
+		"quux", "foos", "f" },*/ *w, *s;
+	/*const size_t words_size = sizeof words / sizeof *words;*/
 	size_t i;
 	char fn[64];
 	int r;
