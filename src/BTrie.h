@@ -218,7 +218,6 @@ insert:
 		/* Left or right leaf. */
 		if(TRIESTR_TEST(key, bit)) i += (left = br1 - br0) + 1, printf("%s%s is after %s\n", lev(), key, br0_key);
 		else left = 0, printf("%s%s is before %s\n", lev(), key, br0_key);
-		printf("left");
 		/* Insert leaf-and-branch pair. */
 		leaf = &tree->leaves[i].leaf;
 		memmove(leaf + 1, leaf, sizeof *leaf * (tree->branch_size + 1 - i));
