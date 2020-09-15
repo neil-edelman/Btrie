@@ -192,6 +192,7 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 		const char *br0_key;
 		assert(br1 < 255); /* fail */
 		/* Branch from internal node. */
+		printf("%sinit branch [%u, %u]\n", lev(), br0, br1);
 		while(branch = tree->branches + br0, br0_key = tree->leaves[i].leaf,
 			br0 < br1) {
 			assert(!TRIESTR_TEST(tree->bmp, i)); /* fail */
@@ -199,22 +200,25 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 				if(TRIESTR_DIFF(key, br0_key, bit)) {printf("%sbranch from branch %lu.\n", lev(), bit);goto insert;}
 			bit0 = bit1;
 			left = branch->left + 1; /* Leaves. */
-			if(TRIESTR_TEST(key, bit)) branch->left++, br1 = br0++ + left;
+			if(!TRIESTR_TEST(key, bit)) branch->left++, br1 = br0++ + left;
 			else br0 += left, i += left;
 			bit++;
+			printf("%sbranch [%u, %u]\n", lev(), br0, br1);
 		}
 		/* Branch from leaf -- find the first difference. */
 		while(!TRIESTR_DIFF(key, br0_key, bit)) bit++;
-		printf("%sbranch from leaf, diff bw { %s, %s } %lu.\n", lev(), key, br0_key, bit);
+		printf("%sbranch from leaf, diff bw insert %s, and trie %s: %lu.\n",
+			lev(), key, br0_key, bit);
 insert:
-		assert(br0 <= br1),assert(br1 <= tree->branch_size),assert(br0_key
-			&& i <= (unsigned)tree->branch_size + 1 && !br0 == !bit0),
-			assert(TRIESTR_DIFF(key, br0_key, bit));
+		assert(br0 <= br1 && br1 <= tree->branch_size && br0_key
+			&& i <= (unsigned)tree->branch_size + 1 && !br0 == !bit0
+			&& TRIESTR_DIFF(key, br0_key, bit));
 		/* This goes to a new sub-tree. */
 		if(TRIESTR_TEST(tree->bmp, i)) { assert(0); /* fail */ continue; }
-		/* How many left entries are there to move, before or after. */
-		if(TRIESTR_TEST(key, bit)) left = br1 - br0, i += left + 1, printf("%s%s is after %s\n", lev(), key, br0_key);
+		/* Left or right leaf. */
+		if(TRIESTR_TEST(key, bit)) i += (left = br1 - br0) + 1, printf("%s%s is after %s\n", lev(), key, br0_key);
 		else left = 0, printf("%s%s is before %s\n", lev(), key, br0_key);
+		printf("left");
 		/* Insert leaf-and-branch pair. */
 		leaf = &tree->leaves[i].leaf;
 		memmove(leaf + 1, leaf, sizeof *leaf * (tree->branch_size + 1 - i));
