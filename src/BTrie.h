@@ -86,15 +86,22 @@ static type *name##_array_new(struct name##_array *const a) { \
 }
 
 
-/** Tries are isomophic to a single complete binary tree, but is split into a
- forest so that, a) we can always fit the `left` sub-branches into a single
- byte, and b) B-tree-like balancing to avoid array-insert. The forest is broken
- up into, also, complete binary trees, that have up to 256 internal nodes. */
+#define TRIESTR_TEST(a, i) (a[i >> 3] & (128 >> (i & 7)))
+#define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
+#define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
+#define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
+/* Order is the maximum branching factor of `link` trees in the (trie) forest,
+ as <Knuth, 1998 Art 3>; this is also the maximum number of `data` leaves. This
+ is a non-empty complete binary tree, so `branches + 1 = leaves`. */
+#define TRIE_ORDER (TRIE_BRANCH + 1)
+#define TRIE_BRANCH 4 /* < 256 (data type of `left`.) */
+
+/** Tries are isomophic to <Morrison, 1968 PATRICiA>, but split into a forest
+ whose minimum size is one leaf, as <Bayer, McCreight, 1972 Large> B-Trees. */
 struct tree {
-	unsigned char branch_size; /* +1 for leaf size, (at least one leaf.) */
-	unsigned char bmp[9]; /* Leaves { leaf | tree_idx }. */
-	struct branch { unsigned char left, skip; } branches[256];
-	union leaf { const char *leaf; size_t tree_idx; } leaves[257];
+	unsigned char branch_size;
+	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
+	union { const char *data[TRIE_ORDER]; size_t link[TRIE_ORDER]; } leaves;
 };
 MIN_ARRAY(tree, struct tree)
 struct trie { struct tree_array forest; };
@@ -103,10 +110,6 @@ struct trie { struct tree_array forest; };
 #endif /* !zero --> */
 
 
-#define TRIESTR_TEST(a, i) (a[i >> 3] & (128 >> (i & 7)))
-#define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
-#define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
-#define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
 
 /** @return Whether `a` and `b` are equal up to the minimum. */
 /*static int trie_is_prefix(const char *a, const char *b) {
@@ -115,6 +118,13 @@ struct trie { struct tree_array forest; };
 		if(*a != *b) return *b == '\0';
 	}
 }*/
+/**  */
+static size_t trie_max_link(const size_t forest_size) {
+	if(forest_size <= 1) return 0;
+	if(forest_size <= 1 + TRIE_ORDER) return 1;
+	if(forest_size <= 1 + TRIE_ORDER + 
+}
+
 /* DEBUG */
 static int level = 0;
 static const char *lev(void) {
@@ -124,6 +134,8 @@ static const char *lev(void) {
 	str[l] = '\0';
 	return str;
 }
+
+
 
 
 static void trie(struct trie *const t)
