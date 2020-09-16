@@ -104,9 +104,9 @@ struct tree {
 	union { const char *data[TRIE_ORDER]; size_t link[TRIE_ORDER]; } leaves;
 };
 MIN_ARRAY(tree, struct tree)
-struct trie { struct tree_array forest; };
+struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
-#define TRIE_IDLE { ARRAY_IDLE }
+#define TRIE_IDLE { 0, ARRAY_IDLE }
 #endif /* !zero --> */
 
 
@@ -118,12 +118,6 @@ struct trie { struct tree_array forest; };
 		if(*a != *b) return *b == '\0';
 	}
 }*/
-/**  */
-static size_t trie_max_link(const size_t forest_size) {
-	if(forest_size <= 1) return 0;
-	if(forest_size <= 1 + TRIE_ORDER) return 1;
-	if(forest_size <= 1 + TRIE_ORDER + 
-}
 
 /* DEBUG */
 static int level = 0;
@@ -139,7 +133,7 @@ static const char *lev(void) {
 
 
 static void trie(struct trie *const t)
-	{ assert(t), tree_array(&t->forest); }
+	{ assert(t), t->links = 0, tree_array(&t->forest); }
 
 static void trie_(struct trie *const t)
 	{ assert(t), tree_array_(&t->forest), trie(t); }
