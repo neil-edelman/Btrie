@@ -101,7 +101,7 @@ struct tree {
 };
 MIN_ARRAY(tree, struct tree)
 /** Tries are isomophic to <Morrison, 1968 PATRICiA>, but less strict then a
- packed array. `links <= forest.size` all the link nodes are in the top. */
+ packed array. `links <= forest.size`, all the link nodes are on top. */
 struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { 0, ARRAY_IDLE }
@@ -126,30 +126,29 @@ static void trie_(struct trie *const t)
 	{ assert(t), tree_array_(&t->forest), trie(t); }
 
 static const char *trie_match(const struct trie *const t, const char *key) {
-	struct tree *tree = t->forest.data;
-	size_t key_byte = 0, skip_byte, bit = 0; /* Check '\0' index; cursor. */
-	unsigned br0, br1, i;
-	struct branch *branch;
+	struct tree *tree = t->forest.data; /* Root tree. */
+	size_t key_byte = 0, skip_byte, bit = 0;
 	assert(t && key);
-	if(!t->forest.size) return 0;
-descend:
-	br0 = 0, br1 = tree->branch_size, i = 0;
-	while(br0 < br1) {
-		bit += (branch = tree->branches + br0)->skip;
-		/* The key ends at an internal branch; '\0' is part of the key. */
-		for(skip_byte = bit >> 3; key_byte < skip_byte; key_byte++)
-			if(key[key_byte] == '\0') return 0;
-		/* Descend left or right based on bit of the key. */
-		if(!TRIESTR_TEST(key, bit)) br1 = ++br0 + branch->left;
-		else br0 += branch->left + 1, i += branch->left + 1;
-		bit++;
+	if(!t->forest.size) return 0; /* Empty. */
+	for( ; ; ) { /* Trees in forest. */
+		unsigned br0 = 0, br1 = tree->branch_size, i = 0;
+		struct branch *branch;
+		while(br0 < br1) { /* Branches in trees. */
+			bit += (branch = tree->branches + br0)->skip;
+			/* The key ends at a branch; '\0' is part of the key. */
+			for(skip_byte = bit >> 3; key_byte < skip_byte; key_byte++)
+				if(key[key_byte] == '\0') return 0;
+			if(!TRIESTR_TEST(key, bit)) br1 = ++br0 + branch->left;
+			else br0 += branch->left + 1, i += branch->left + 1;
+			bit++;
+		}
+		assert(br0 == br1);
+		if((size_t)(tree - t->forest.data) >= t->links)
+			return tree->leaves[i].data;
+		assert(tree->leaves[i].link < t->forest.size
+			&& tree->leaves[i].link != (size_t)(tree - t->forest.data));
+		tree = t->forest.data + tree->leaves[i].link;
 	}
-	assert(br0 == br1);
-	if((size_t)(tree - t->forest.data) >= t->links) return tree->leaves[i].data;
-	/* This query is a link to the next tree. */
-	assert(tree->leaves[i].link < t->forest.size);
-	tree = t->forest.data + tree->leaves[i].link;
-	goto descend;
 }
 
 static const char *trie_get(const struct trie *const t, const char *const key) {
