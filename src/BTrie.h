@@ -162,6 +162,7 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 static int trie_add_unique(struct trie *const t, const char *const key) {
 	struct tree *tree = t->forest.data;
 	size_t bit = 0, bit0 = 0, bit1; /* `bit \in [bit0, bit1]` single branch. */
+	/* This is just the matching code above with more variables. */
 	assert(t && key);
 	if(!t->forest.size)
 		return (assert(!t->links), tree = tree_array_new(&t->forest))
@@ -171,36 +172,32 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 		struct branch *branch;
 		const char **leaf;
 		const char *br0_key;
-		assert(br1 < 255); /* fail */
+		assert(br1 < TRIE_BRANCH); /* fail */
 		/* Branch from internal node. */
-		printf("%sinit branch [%u, %u]\n", lev(), br0, br1);
-		while(branch = tree->branches + br0, br0_key = tree->leaves[i].leaf,
+		while(branch = tree->branches + br0, br0_key = tree->leaves[i].data/*fixme*/,
 			br0 < br1) {
-			assert(!TRIESTR_TEST(tree->bmp, i)); /* fail */
 			for(bit1 = bit + branch->skip; bit < bit1; bit++)
-				if(TRIESTR_DIFF(key, br0_key, bit)) {printf("%sbranch from branch %lu.\n", lev(), bit);goto insert;}
+				if(TRIESTR_DIFF(key, br0_key, bit)) goto insert;
 			bit0 = bit1;
 			left = branch->left + 1; /* Leaves. */
 			if(!TRIESTR_TEST(key, bit)) branch->left++, br1 = br0++ + left;
 			else br0 += left, i += left;
 			bit++;
-			printf("%sbranch [%u, %u]\n", lev(), br0, br1);
 		}
-		/* Branch from leaf -- find the first difference. */
+		/* Branch from leaf -- find the first difference bit-by-bit. */
 		while(!TRIESTR_DIFF(key, br0_key, bit)) bit++;
-		printf("%sbranch from leaf, diff bw insert %s, and trie %s: %lu.\n",
-			lev(), key, br0_key, bit);
 insert:
 		assert(br0 <= br1 && br1 <= tree->branch_size && br0_key
 			&& i <= (unsigned)tree->branch_size + 1 && !br0 == !bit0
 			&& TRIESTR_DIFF(key, br0_key, bit));
 		/* This goes to a new sub-tree. */
-		if(TRIESTR_TEST(tree->bmp, i)) { assert(0); /* fail */ continue; }
+		if((size_t)(tree - t->forest.data) < t->links)
+			{ assert(0); /* fail */ continue; }
 		/* Left or right leaf. */
-		if(TRIESTR_TEST(key, bit)) i += (left = br1 - br0) + 1, printf("%s%s is after %s\n", lev(), key, br0_key);
-		else left = 0, printf("%s%s is before %s\n", lev(), key, br0_key);
+		if(TRIESTR_TEST(key, bit)) i += (left = br1 - br0) + 1;
+		else left = 0;
 		/* Insert leaf-and-branch pair. */
-		leaf = &tree->leaves[i].leaf;
+		leaf = &tree->leaves[i].data;
 		memmove(leaf + 1, leaf, sizeof *leaf * (tree->branch_size + 1 - i));
 		*leaf = key;
 		branch = tree->branches + br0;
@@ -212,17 +209,6 @@ insert:
 		branch->left = left;
 		branch->skip = bit - bit0 - !!br0;
 		tree->branch_size++;
-		{
-			unsigned q;
-			printf("%sOrder: ", lev());
-			for(q = 0; q < tree->branch_size + 1u; q++) {
-				printf("%s%s", q ? ", " : "", tree->leaves[q].leaf);
-			}
-			printf(".\n");
-			for(q = 0; q < tree->branch_size; q++)
-				assert(strcmp(tree->leaves[q].leaf, tree->leaves[q + 1].leaf)<0);
-		}
-		level--, printf("%s}\n", lev());
 		return 1;
 	}
 	assert(0);
@@ -230,12 +216,8 @@ insert:
 }
 
 static int trie_add(struct trie *const t, const char *const key) {
-	int r;
 	assert(t && key);
-	printf("%sadd %s {\n", lev(), key), level++;
-	r = trie_get(t, key) ? 0 : trie_add_unique(t, key);
-	level--, printf("%s}\n", lev());
-	return r;
+	return trie_get(t, key) ? 0 : trie_add_unique(t, key);
 }
 
 /** Given branch index `b` in `tree`, calculate (inefficiently) the right
@@ -309,7 +291,7 @@ static int trie_graph(const struct trie *const t, const char *const fn) {
 			for(lf = 0; lf <= tree->branch_size; lf++)
 				fprintf(fp, "\tleaf%u [label = \"%s\", shape = box, "
 				"fillcolor = lightsteelblue, style = filled];\n",
-				lf, tree->leaves[lf].leaf /*fixme*/);
+				lf, tree->leaves[lf].data /*fixme*/);
 			fprintf(fp, "\tnode [color = red];\n"
 				"}\n");	
 		}
