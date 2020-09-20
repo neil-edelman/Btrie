@@ -159,16 +159,16 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 	return leaf && !strcmp(leaf, key) ? leaf : 0;
 }
 
-/** Use this when calculatating the left key of a link tree. */
+/** Use this when calculating the left key of a link tree.
+ @order O(\log_{TRIE_ORDER} `size`) */
 static const char *trie_left_link_key(struct trie *const t, struct tree *tree,
 	const unsigned br) {
 	size_t link = tree->leaves[br].link;
 	assert(t->forest.data <= tree && t->forest.data + t->links > tree
-		&& br < tree->branch_size && link < tree->branch_size && br != link);
-	do { link = t->forest.data[link].leaves[0].link; } while(link < t->links);
+		&& br < tree->branch_size && (size_t)(tree - t->forest.data) != link);
+	while(link < t->links) link = t->forest.data[link].leaves[0].link;
 	return t->forest.data[link].leaves[0].data;
 }
-static int trie_graph(const struct trie *const t, const char *const fn);
 
 /** Add `datum` to `trie`. Must not be the same as any key of `trie`; _ie_ it
  does not check for the end of the string. @return Success. @order \O(|`trie`|)
@@ -237,7 +237,7 @@ vacant_data_insert:
 	n.tree->branch_size++;
 	return 1;
 
-full_data_tree: /* Split at root of tree; move root up to link. `tree` */
+full_data_tree: /* Split at root of tree; move root up to link tree. */
 	assert(n.tree->branch_size == n.b1 && n.b1 == TRIE_BRANCH
 		&& t->links == n.t /* Fixme: or else have to swap size<->link. */);
 	branch = n.tree->branches + 0;
@@ -263,17 +263,16 @@ full_data_tree: /* Split at root of tree; move root up to link. `tree` */
 	n.tree->leaves[0].link = (size_t)(a - t->forest.data);
 	n.tree->leaves[1].link = (size_t)(b - t->forest.data);
 	t->links++;
-	trie_graph(t, "graph/split.gv");
-	/* Left or right. */
-	n.tree = TRIESTR_TEST(key, bit.b) ? b : a, bit.b++;
-	n.t = n.tree - t->forest.data, n.b0 = 0, n.b1 = n.tree->branch_size;
-	assert(n.b1 < TRIE_BRANCH);
+	/* Update new state. */
+	n.tree = TRIESTR_TEST(key, bit.b) ? b : a, n.t = n.tree - t->forest.data,
+		n.b0 = 0, n.b1 = n.tree->branch_size, n.i = 0;
+	bit.b++;
 	goto vacant_data_tree;
 full_data_before_root:
 	assert(0);
 
-vacant_link_tree: /* Go to another tree. `tree` */
-	branch = n.tree->branches + 0;
+vacant_link_tree: /* Go to another tree. */
+	branch = n.tree->branches + 0, assert(n.tree->branch_size);
 	n.key = trie_left_link_key(t, n.tree, 0);
 	for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
 		if(TRIESTR_DIFF(key, n.key, bit.b)) goto full_link_before_root;
