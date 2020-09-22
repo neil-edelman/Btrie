@@ -236,7 +236,7 @@ tree:
 	}
 
 vacant_data_tree: /* Descend bottom vacant level, expanding for insertion. */
-	printf("tree%lu: descend and expand bottom vacant level.\n", n.t);
+	printf("tree%lu: descend and expand bottom vacant level; bit %lu.\n", n.t, bit.b);
 	n.key = n.tree->leaves[0].data;
 	while(n.b0 < n.b1) {
 		branch = n.tree->branches + n.b0;
@@ -272,12 +272,12 @@ vacant_link_tree: /* Go to another tree or branch off anew. */
 full_data_tree: /* Split at root of tree; move root up to link tree. */
 	printf("tree%lu: split at root of tree; move root up to link tree\n", n.t);
 	assert(n.tree->branch_size == n.b1 && n.b1 == TRIE_BRANCH);
-	if(n.t && (t->forest.data[n.prev.t].branch_size < TRIE_BRANCH))
-		goto full_data_prev_tree_vacant;
 	branch = n.tree->branches + 0;
 	n.key = n.tree->leaves[0].data;
 	for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
 		if(TRIESTR_DIFF(key, n.key, bit.b)) goto full_data_before_root;
+	if(n.t && (t->forest.data[n.prev.t].branch_size < TRIE_BRANCH))
+		goto full_data_prev_tree_vacant;
 	/* root..tree -> root->{a,b} */
 	/* Difference past the root of the tree, split it at root; invalidated. */
 	if(!tree_array_reserve(&t->forest, t->forest.size + 2)) return 0;
@@ -340,8 +340,8 @@ full_data_prev_tree_vacant: /* a->root..tree to a..root->{tree,b}. */
 	n.tree->branch_size = (branch = n.tree->branches + 0)->left;
 	memmove(branch, branch + 1, sizeof *branch * n.tree->branch_size);
 	/* Debug. */ { char z[32]; static unsigned short counter = 0; sprintf(z, "graph/full%u.gv", counter++); trie_graph(t, z); }
-	
 	if(TRIESTR_TEST(key, bit.b)) n.t = b - t->forest.data;
+	bit.b++;
 	goto tree;
 
 vacant_data_insert: /* Place a leaf in the vacancy; no growth needed. */
