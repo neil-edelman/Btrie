@@ -205,7 +205,7 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 	struct { /* Node state. */
 		size_t t; struct tree *tree; /* Tree index and tree. */
 		unsigned b0, b1, i; /* Branch range and leaf accumulator. */
-		struct { size_t t; unsigned b, i; } prev;
+		struct { size_t t; unsigned i; } prev;
 		const char *key; /* Left key of branch, (temporary.) */
 	} n;
 	/* Temporary variables. */
@@ -213,7 +213,6 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 	struct branch *branch;
 	unsigned left, right;
 	union leaf *leaf;
-	size_t *link;
 	assert(t && key);
 
 	printf("Add: key %c %c%c%c%c %c%c%c%c\n", *key, *key&128?'1':'0', *key&64?'1':'0', *key&32?'1':'0', *key&16?'1':'0', *key&8?'1':'0', *key&4?'1':'0', *key&2?'1':'0', *key&1?'1':'0');
@@ -265,7 +264,7 @@ vacant_link_tree: /* Go to another tree or branch off anew. */
 		bit.b++, bit.b0 = bit.b1;
 	}
 	/* Go to another tree. */
-	n.prev.t = n.t, n.prev.b = n.b0, n.prev.i = n.i;
+	n.prev.t = n.t, n.prev.i = n.i;
 	n.t = n.tree->leaves[n.i].link;
 	assert(n.b0 == n.b1 && n.t < t->forest.size && n.prev.t != n.t);
 	goto tree;
@@ -306,7 +305,7 @@ full_data_tree: /* Split at root of tree; move root up to link tree. */
 	t->links++;
 	/* Debug. */ { char z[32]; static unsigned short counter = 0; sprintf(z, "graph/split%u.gv", counter++); trie_graph(t, z); }
 	/* Update new state. */
-	n.prev.t = n.t, n.prev.b = n.b0, n.prev.i = n.i;
+	n.prev.t = n.t, n.prev.i = n.i;
 	n.t = (TRIESTR_TEST(key, bit.b) ? b : a) - t->forest.data;
 	bit.b++;
 	goto tree;
@@ -315,28 +314,34 @@ full_data_prev_tree_vacant: /* a->root..tree to a..root->{tree,b}. */
 	assert(n.b1 > branch->left);
 	if(!(b = tree_array_new(&t->forest))) return 0;
 	left = (branch = (n.tree = t->forest.data + n.t)->branches + 0)->left;
-	/* Split `b` from `branch` by coping all items in the right of tree. */
+	/* Split; copy all right nodes from `tree` into `b`. */
 	b->branch_size = (right = n.b1 - left - 1);
 	memcpy(b->branches, n.tree->branches + left + 1, sizeof *branch * right);
 	memcpy(b->leaves, n.tree->leaves + left + 1, sizeof(union leaf) *(right+1));
-	/* Move the root into the previous link `a`; this modifies the tree. */
+	/* Move the root into the previous link tree; let's name it `a`. */
 	a = t->forest.data + n.prev.t;
-	assert(n.prev.t < t->links && a->branch_size < TRIE_BRANCH);
 	n.b0 = 0, n.b1 = a->branch_size, n.i = 0;
+	assert(n.prev.t < t->links && n.b1 < TRIE_BRANCH);
 	while(n.b0 < n.b1) {
-		branch = n.tree->branches + n.b0;
-		left = branch->left + 1;
+		left = (branch = a->branches + n.b0)->left + 1;
 		if(n.prev.i < n.b0 + left) n.b1 = n.b0++ + (branch->left = left);
 		else n.b0 += left, n.i += left;
 	}
-	assert(n.prev.i == n.i);
-	
-	link = &a->leaves[n.prev.i].link;
-	memmove(link + 1, link, sizeof *link * (a->branch_size + 1 - n.prev.i));
-	*link = n.t; /* Right? */
-	/* The root and it's right side have been copied, now to elimante. */
-	trie_graph(t, "graph/full.gv");
-	assert(0);
+	assert(n.b0 == n.b1 && n.prev.i == n.i);
+	leaf = a->leaves + n.i + 1; /* Left is already [tree], make leaf right. */
+	memmove(leaf + 1, leaf, sizeof *leaf * (a->branch_size + 1 - n.i));
+	leaf->link = b - t->forest.data;
+	branch = a->branches + n.b0;
+	memmove(branch + 1, branch, sizeof *branch * (a->branch_size - n.b0));
+	branch->left = 0;
+	branch->skip = n.tree->branches[0].skip;
+	a->branch_size++;
+	/* The root and it's right side have been copied; only the left. */
+	n.tree->branch_size = (branch = n.tree->branches + 0)->left;
+	memmove(branch, branch + 1, sizeof *branch * n.tree->branch_size);
+	/* Debug. */ { char z[32]; static unsigned short counter = 0; sprintf(z, "graph/full%u.gv", counter++); trie_graph(t, z); }
+	if(TRIESTR_TEST(key, bit.b)) n.t = b - t->forest.data;
+	goto tree;
 
 vacant_data_insert: /* Place a leaf in the vacancy; no growth needed. */
 	printf("tree %lu: place a leaf in the vacancy; no growth needed. b[%u:%u) i:%u, bit %lu\n", n.t, n.b0, n.b1, n.i, bit.b);
@@ -413,14 +418,14 @@ static unsigned trie_left_leaf(const struct tree *const tree,
 }
 
 /* This is actually the same function as `trie_left_key(trie_left_leaf())`. */
-static const char *trie_string(const struct trie *const t,
+/*static const char *trie_string(const struct trie *const t,
 	const struct tree *tree, size_t branch) {
 	unsigned leaf = trie_left_leaf(tree, branch);
 	assert(t && tree);
 	while((size_t)(tree - t->forest.data) < t->links)
 		tree = t->forest.data + tree->leaves[leaf].link, leaf = 0;
 	return tree->leaves[leaf].data;
-}
+}*/
 
 static int trie_graph(const struct trie *const t, const char *const fn) {
 	FILE *fp = 0;
@@ -436,10 +441,10 @@ static int trie_graph(const struct trie *const t, const char *const fn) {
 	} else {
 		unsigned tr;
 		for(tr = 0; tr < t->forest.size; tr++) {
-			struct { size_t b0, b1; } bit = { 0, 0 };
+			/*struct { size_t b0, b1; } bit = { 0, 0 };*/
 			struct tree *const tree = t->forest.data + tr;
 			unsigned br, lf;
-			const char *sample;
+			/*const char *sample;*/
 			fprintf(fp, "\t// subgraph cluster_tree%lu {\n"
 				"\t\t// label = \"Tree %lu\";\n"
 				"\t\t// style = filled;\n",
@@ -449,21 +454,26 @@ static int trie_graph(const struct trie *const t, const char *const fn) {
 				const unsigned left = branch->left,
 					right = trie_right(tree, br);
 				fprintf(fp, "\t\tbranch%u_%u [label = \"", tr, br);
-				sample = trie_string(t, tree, br);
+				/*sample = trie_string(t, tree, br);
 				for(bit.b1 = bit.b0 + branch->skip; bit.b0 < bit.b1; bit.b0++)
 					fprintf(fp, "%c", TRIESTR_TEST(sample, bit.b0) ? '1' : '0');
+				bit.b1 = bit.b0 + branch->skip;
+				fprintf(fp, "%s[%lu,%lu]", sample, bit.b0, bit.b1);
+				bit.b0 = bit.b1 + 1;*/
+				fprintf(fp, "%u", branch->skip);
 				fprintf(fp, "\"];\n"
 					"\t\tbranch%u_%u -> ", tr, br);
 				if(left) {
 					fprintf(fp, "branch%u_%u [style = dashed];\n", tr, br + 1);
 				} else {
-					if(tr < t->links) fprintf(fp,
-						"branch%lu_0 [style = dashed, color = firebrick,"
-						" label = \"T%lu\"]; // left link\n", (unsigned long)
-						tree->leaves[trie_left_leaf(tree, br)].link,
-						(unsigned long)
-						tree->leaves[trie_left_leaf(tree, br)].link);
-					else fprintf(fp, "leaf%u_%u [style = dashed]; "
+					if(tr < t->links) {
+						const size_t link
+							= tree->leaves[trie_left_leaf(tree, br)].link;
+						fprintf(fp,
+"%s%lu_0 [style = dashed, color = firebrick, label = \"T%lu\"]; // left link\n",
+t->forest.data[link].branch_size ? "branch" : "leaf",
+(unsigned long)link, (unsigned long)link);
+					} else fprintf(fp, "leaf%u_%u [style = dashed]; "
 						"// left leaf\n", tr, trie_left_leaf(tree, br));
 				}
 				fprintf(fp, "\t\tbranch%u_%u -> ", tr, br);
@@ -471,13 +481,14 @@ static int trie_graph(const struct trie *const t, const char *const fn) {
 					fprintf(fp, "branch%u_%u; // right branch\n",
 						tr, br + left + 1);
 				} else {
-					if(tr < t->links) fprintf(fp,
-						"branch%lu_0 [color = firebrick, label = \"T%lu\"];"
-						" // right link\n", (unsigned long)
-						tree->leaves[trie_left_leaf(tree, br) + left + 1].link,
-						(unsigned long)
-						tree->leaves[trie_left_leaf(tree, br) + left + 1].link);
-					else fprintf(fp, "leaf%u_%u; // right leaf\n",
+					if(tr < t->links) {
+						const size_t link
+= tree->leaves[trie_left_leaf(tree, br) + left + 1].link;
+						fprintf(fp,
+"%s%lu_0 [color = firebrick, label = \"T%lu\"]; // right link\n",
+t->forest.data[link].branch_size ? "branch" : "leaf",
+(unsigned long)link, (unsigned long)link);
+					} else fprintf(fp, "leaf%u_%u; // right leaf\n",
 						tr, trie_left_leaf(tree, br) + left + 1);
 				}
 			}
