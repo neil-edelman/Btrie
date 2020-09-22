@@ -201,7 +201,7 @@ static void print_tree(const struct trie *const t,
  @throws[realloc, ERANGE] */
 static int trie_add_unique(struct trie *const t, const char *const key) {
 	/* Counter state `b \in [b0, b1]`. */
-	struct { size_t b, b0, b1; } bit = { 0, 0, 0 };
+	struct { size_t b, b0, b1; } bit;
 	struct { /* Node state. */
 		size_t t; struct tree *tree; /* Tree index and tree. */
 		unsigned b0, b1, i; /* Branch range and leaf accumulator. */
@@ -221,6 +221,7 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 	if(!t->forest.size) return printf("empty forest; creating tree0.\n"), (a = tree_array_new(&t->forest))
 		&& (assert(!t->links), a->branch_size = 0, a->leaves[0].data = key, 1);
 
+	bit.b = 0; /* Bit starts at the beginning. */
 	n.t = 0; /* Tree starts at the top. */
 tree:
 	n.tree = t->forest.data + n.t, n.b0 = 0,
