@@ -200,12 +200,13 @@ static void print_tree(const struct trie *const t,
  does not check for the end of the string. @return Success. @order \O(|`trie`|)
  @throws[realloc, ERANGE] */
 static int trie_add_unique(struct trie *const t, const char *const key) {
-	/* Counter state `b \in [b0, b1]`. */
+	/* Counter state defined by `b \in [b0, b1)`. */
 	struct { size_t b, b0, b1; } bit;
-	struct { /* Node state. */
+	/* Node state defined by `t`, `prev`. The hard part is the B-Tree. */
+	struct {
 		size_t t; struct tree *tree; /* Tree index and tree. */
 		unsigned b0, b1, i; /* Branch range and leaf accumulator. */
-		struct { size_t t; unsigned i; } prev;
+		struct { size_t t; unsigned i; } prev; /* Only defined on `!t`. */
 		const char *key; /* Left key of branch, (temporary.) */
 	} n;
 	/* Temporary variables. */
@@ -214,30 +215,49 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 	unsigned left, right;
 	union leaf *leaf;
 	assert(t && key);
-
 	printf("ADD: %s\n", key);
 
 	/* Empty special case. */
 	if(!t->forest.size) return printf("empty forest; creating tree0.\n"), (a = tree_array_new(&t->forest))
 		&& (assert(!t->links), a->branch_size = 0, a->leaves[0].data = key, 1);
 
-	bit.b = 0; /* Bit starts at the beginning. */
-	n.t = 0; /* Tree starts at the top. */
+	bit.b = 0, n.t = 0; /* Bit beginning; tree top. */
 tree:
-	n.tree = t->forest.data + n.t, n.b0 = 0,
-		n.b1 = n.tree->branch_size, n.i = 0;
+	/* Populate the node with `n.t`. (Except `prev`, `key`.) */
+	n.b0 = 0, n.b1 = (n.tree = t->forest.data + n.t)->branch_size, n.i = 0;
+	/* Populate the bit with `bit.b`. (Except `b1`.) */
 	bit.b0 = bit.b;
 	printf("_descending tree_, bit %lu, ", bit.b), print_tree(t, n.tree);
-	if(n.t >= t->links) {
-		if(n.tree->branch_size < TRIE_BRANCH) goto vacant_data_tree;
-		else goto full_data_tree;
+	if(n.tree->branch_size < TRIE_BRANCH) {
+		if(n.t < t->links) goto vacant_link_tree;
+		else goto vacant_data_tree;
 	} else {
-		if(n.tree->branch_size < TRIE_BRANCH) goto vacant_link_tree;
-		goto full_link_tree;
+		if(n.t < t->links) goto full_link_tree;
+		else goto full_data_tree;
 	}
 
-vacant_data_tree: /* Descend bottom vacant level, expanding for insertion. */
-	printf("tree%lu: descend and expand bottom vacant level; bit %lu.\n", n.t, bit.b);
+vacant_link_tree: /* Go to another tree or branch off a new tree. */
+	printf("Go to another tree or branch off a new tree.\n");
+	n.key = trie_left_link_key(t, n.tree, 0);
+	printf("key to ins %s sample %s\n", key, n.key);
+	while(n.b0 < n.b1) {
+		branch = n.tree->branches + n.b0;
+		printf("[%u,%u)%u branch %u(%u)\n", n.b0, n.b1, n.i, branch->left, branch->skip);
+		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++) {
+			printf("n.key %s\n", n.key);
+			if(TRIESTR_DIFF(key, n.key, bit.b)) goto vacant_link_insert;}
+		left = branch->left + 1;
+		if(!TRIESTR_TEST(key, bit.b)) n.b1 = n.b0++ + left;
+		else n.b0 += left, n.i += left, n.key = n.tree->leaves[n.i].data;
+		bit.b++, bit.b0 = bit.b1;
+	}
+	n.prev.t = n.t, n.prev.i = n.i;
+	n.t = n.tree->leaves[n.i].link;
+	assert(n.b0 == n.b1 && n.t < t->forest.size && n.prev.t != n.t);
+	goto tree;
+
+vacant_data_tree: /* Almost done; descend, expanding for insertion. */
+	printf("Almost done; descend, expanding for insertion.\n");
 	n.key = n.tree->leaves[0].data;
 	while(n.b0 < n.b1) {
 		branch = n.tree->branches + n.b0;
@@ -251,24 +271,6 @@ vacant_data_tree: /* Descend bottom vacant level, expanding for insertion. */
 	assert(n.b0 == n.b1);
 	while(!TRIESTR_DIFF(key, n.key, bit.b)) bit.b++;
 	goto vacant_data_insert;
-
-vacant_link_tree: /* Go to another tree or branch off anew. */
-	printf("tree%lu: vacant link tree\n", n.t);
-	n.key = trie_left_link_key(t, n.tree, 0);
-	while(n.b0 < n.b1) {
-		branch = n.tree->branches + n.b0;
-		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
-			if(TRIESTR_DIFF(key, n.key, bit.b)) goto vacant_link_insert;
-		left = branch->left + 1;
-		if(!TRIESTR_TEST(key, bit.b)) n.b1 = n.b0++ + left;
-		else n.b0 += left, n.i += left, n.key = n.tree->leaves[n.i].data;
-		bit.b++, bit.b0 = bit.b1;
-	}
-	/* Go to another tree. */
-	n.prev.t = n.t, n.prev.i = n.i;
-	n.t = n.tree->leaves[n.i].link;
-	assert(n.b0 == n.b1 && n.t < t->forest.size && n.prev.t != n.t);
-	goto tree;
 
 full_data_tree: /* Split at root of tree; move root up to link tree. */
 	printf("tree%lu: split at root of tree; move root up to link tree\n", n.t);
@@ -371,10 +373,7 @@ vacant_data_insert: /* Place a leaf in the vacancy; no growth needed. */
 
 vacant_link_insert:
 	assert(0);
-
 full_data_tree_before_root:
-	assert(0);
-/*full_link_before_root:*/
 	assert(0);
 full_link_tree:
 	assert(0);
