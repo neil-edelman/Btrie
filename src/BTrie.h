@@ -4,7 +4,12 @@
  @subtitle Trie
 
  Trie pre-order internal nodes in the style of <Morrison, 1968 PATRICiA>.
- Mixed with BTree.
+ Mixed with BTree. Assumes the leaves are concentrated at high depth, or else
+ there is a lot of wasted space. Think about this more.
+
+ @fixme Strings can not be more then 8 characters the same. Use insert 255,
+ [64k] and one null. No, have leaf, 255->leaf.bigskip+255, not doing anything
+ with it anyway.
 
  @param[TRIE_NAME, TRIE_TYPE]
  <typedef:<PN>type> that satisfies `C` naming conventions when mangled and an
@@ -125,24 +130,26 @@ struct trie { size_t links; struct tree_array forest; };
 
 
 
+/** New idle `t`. */
 static void trie(struct trie *const t)
 	{ assert(t), t->links = 0, tree_array(&t->forest); }
 
+/** Erase `t` to idle. */
 static void trie_(struct trie *const t)
 	{ assert(t), tree_array_(&t->forest), trie(t); }
 
+/** @return Possibly matches `key` or null if `key` is definitely not in `t`. */
 static const char *trie_match(const struct trie *const t, const char *key) {
-	size_t bit, link;
+	size_t bit, tr;
 	struct { size_t key, trie; } byte;
 	assert(t && key);
 	if(!t->forest.size) return 0; /* Empty. */
-	for(byte.key = 0, bit = 0, link = 0; ; ) { /* `link` tree in forest. */
-		struct tree *const tree = t->forest.data + link;
-		struct { size_t b0, b1, i; } n;
-		assert(link < t->forest.size);
-		/* Node branch range (binary search low, high) and leaf accumulator. */
+	for(byte.key = 0, bit = 0, tr = 0; ; ) { /* Descend tree in forest. */
+		struct tree *const tree = t->forest.data + tr;
+		struct { size_t b0, b1, i; } n; /* Branch range and leaf accumulator. */
+		assert(tr < t->forest.size);
 		n.b0 = 0, n.b1 = tree->branch_size, n.i = 0;
-		while(n.b0 < n.b1) { /* Descend branches until leaf. */
+		while(n.b0 < n.b1) { /* Branches. */
 			struct branch *const branch = tree->branches + n.b0;
 			for(byte.trie = (bit += branch->skip) >> 3; byte.key < byte.trie;
 				byte.key++) if(key[byte.key] == '\0') return 0;
@@ -150,12 +157,13 @@ static const char *trie_match(const struct trie *const t, const char *key) {
 			else n.b0 += branch->left + 1, n.i += branch->left + 1;
 			bit++;
 		}
-		assert(n.b0 == n.b1);
-		if(link < t->links) link = tree->leaves[n.i].link;
+		assert(n.b0 == n.b1); /* Leaf. */
+		if(tr < t->links) tr = tree->leaves[n.i].link;
 		else return tree->leaves[n.i].data;
 	}
 }
 
+/** @return `key` in `t` or null. */
 static const char *trie_get(const struct trie *const t, const char *const key) {
 	const char *const leaf = trie_match(t, key);
 	return leaf && !strcmp(leaf, key) ? leaf : 0;
@@ -204,13 +212,13 @@ static void print_forest(const struct trie *const t) {
 	printf("}\n");
 }
 
-/** Add `datum` to `trie`. Must not be the same as any key of `trie`; _ie_ it
- does not check for the end of the string. @return Success. @order \O(|`trie`|)
- @throws[realloc, ERANGE] */
+/** Add `key` to `t`. Must not be the same as any key of `t`; _ie_ it does not
+ check for the end of the string. @return Success.
+ @order \O(`key.length` OR \log `size`) @throws[realloc, ERANGE] */
 static int trie_add_unique(struct trie *const t, const char *const key, const size_t counter) {
 	/* Counter state defined by `b \in [b0, b1)`. */
 	struct { size_t b, b0, b1; } bit;
-	/* Node state defined by `t`, `prev`. The hard part is the B-Tree. */
+	/* Node state defined by `t`. */
 	struct {
 		size_t t; /* Tree index. */
 		unsigned b0, b1, i; /* Branch range and leaf accumulator. */
