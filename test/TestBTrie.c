@@ -40,7 +40,7 @@ static void test_basic_trie_str(void) {
 	for(i = 0; i < /*words_size*/30; i++) {
 		w = parole[i];
 		s = trie_get(&t, w), assert(!s);
-		r = trie_add(&t, w), assert(r);
+		r = trie_add(&t, w, i + 1), assert(r);
 		sprintf(fn, "graph/%lu.gv", (unsigned long)i + 1);
 		r = trie_graph(&t, fn), assert(r);
 		s = trie_get(&t, w), assert(s == w);
