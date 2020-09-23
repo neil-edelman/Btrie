@@ -164,10 +164,10 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 /** Use this when calculating the left key of a link tree.
  @order O(\log_{TRIE_ORDER} `size`) */
 static const char *trie_left_link_key(struct trie *const t, struct tree *tree,
-	const unsigned br) {
-	size_t link = tree->leaves[br].link;
+	const unsigned i) {
+	size_t link = tree->leaves[i].link;
 	assert(t->forest.data <= tree && t->forest.data + t->links > tree
-		&& br < tree->branch_size && (size_t)(tree - t->forest.data) != link);
+		&& i <= tree->branch_size && (size_t)(tree - t->forest.data) != link);
 	while(link < t->links) link = t->forest.data[link].leaves[0].link;
 	return t->forest.data[link].leaves[0].data;
 }
@@ -239,16 +239,14 @@ tree:
 vacant_link_tree: /* Go to another tree or branch off a new tree. */
 	printf("Go to another tree or branch off a new tree.\n");
 	n.key = trie_left_link_key(t, n.tree, 0);
-	printf("key to ins %s sample %s\n", key, n.key);
+	printf("key to insert %s sample %s\n", key, n.key);
 	while(n.b0 < n.b1) {
 		branch = n.tree->branches + n.b0;
-		printf("[%u,%u)%u branch %u(%u)\n", n.b0, n.b1, n.i, branch->left, branch->skip);
-		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++) {
-			printf("n.key %s\n", n.key);
-			if(TRIESTR_DIFF(key, n.key, bit.b)) goto vacant_link_insert;}
+		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
+			if(TRIESTR_DIFF(key, n.key, bit.b)) goto vacant_link_insert;
 		left = branch->left + 1;
 		if(!TRIESTR_TEST(key, bit.b)) n.b1 = n.b0++ + left;
-		else n.b0 += left, n.i += left, n.key = n.tree->leaves[n.i].data;
+		else n.b0 += left, n.i += left, printf("sample %s change\n", n.key), n.key = trie_left_link_key(t, n.tree, n.i), printf(" -> %p\n", n.key);
 		bit.b++, bit.b0 = bit.b1;
 	}
 	n.prev.t = n.t, n.prev.i = n.i;
