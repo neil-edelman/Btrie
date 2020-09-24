@@ -7,9 +7,8 @@
  Mixed with BTree. Assumes the leaves are concentrated at high depth, or else
  there is a lot of wasted space. Think about this more.
 
- @fixme Strings can not be more then 8 characters the same. Use insert 255,
- [64k] and one null. No, have leaf, 255->leaf.bigskip+255, not doing anything
- with it anyway.
+ @fixme Strings can not be more then 8 characters the same. Have a leaf value
+ 255->leaf.bigskip+255. I fear it may double the code.
 
  @param[TRIE_NAME, TRIE_TYPE]
  <typedef:<PN>type> that satisfies `C` naming conventions when mangled and an
@@ -105,7 +104,8 @@ static type *name##_array_new(struct name##_array *const a) { \
 struct tree {
 	unsigned char branch_size;
 	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
-	union leaf { const char *data; size_t link; } leaves[TRIE_ORDER];
+	union leaf { const char *data; size_t bigskip; size_t link; }
+		leaves[TRIE_ORDER];
 };
 MIN_ARRAY(tree, struct tree)
 /** Tries are isomorphic to <Morrison, 1968 PATRICiA>, but in a linked forest
@@ -245,14 +245,14 @@ tree:
 	bit.b0 = bit.b;
 	printf("_descending tree_, bit %lu, ", bit.b), print_tree(t, n.t);
 	if(tree->branch_size < TRIE_BRANCH) {
-		if(n.t < t->links) goto vacant_link_tree;
+		if(n.t < t->links) goto link_tree;
 		else goto vacant_data_tree;
 	} else {
-		if(n.t < t->links) goto full_link_tree;
+		if(n.t < t->links) goto link_tree;
 		else goto full_data_tree;
 	}
 
-vacant_link_tree: /* Go to another tree or branch off a new tree. */
+link_tree: /* Go to another tree or branch off a new tree. */
 	printf("Go to another tree or branch off a new tree.\n");
 	n.key = trie_left_link_key(t, tree, 0);
 	while(n.b0 < n.b1) {
@@ -408,8 +408,6 @@ vacant_data_insert: /* Place a leaf in the vacancy. */
 vacant_link_insert:
 	assert(0);
 full_data_tree_before_root:
-	assert(0);
-full_link_tree:
 	assert(0);
 	return 0;
 }
