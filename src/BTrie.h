@@ -236,34 +236,8 @@ static int trie_split(struct trie *const t, struct trie_descent *const d) {
 		&& d->prev.i <= t->forest.data[d->prev.t].branch_size))
 		&& top->branch_size == TRIE_BRANCH);
 
-	if(d->t && t->forest.data[d->prev.t].branch_size < TRIE_BRANCH)
-		goto prev_vacant;
+	if(!d->t || t->forest.data[d->prev.t].branch_size >= TRIE_BRANCH) goto full;
 
-	/* Locally full forest. Split `top` into new `left` and `right` sides. */
-	if(!tree_array_reserve(&t->forest, t->forest.size + 2)) return 0;
-	top = t->forest.data + d->t; /* Invalidated. */
-	left = tree_array_new(&t->forest), assert(left);
-	left->branch_size = (lt = (branch = top->branches + 0)->left);
-	memcpy(left->branches, top->branches + 1, sizeof *branch * lt);
-	memcpy(left->leaves, top->leaves, sizeof *leaf * (lt + 1));
-	right = tree_array_new(&t->forest), assert(right && top->branch_size > lt);
-	right->branch_size = (rt = top->branch_size - lt - 1);
-	memcpy(right->branches, top->branches + lt + 1, sizeof *branch * rt);
-	memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt + 1));
-	/* Swap `top` and `forest[links++]`; contiguous by design choice. */
-	if(t->links != d->t) {
-		/* Pick any data (say left) and look it up, paying attention to the
-		 transitions from tree-to-tree. */
-		assert(0);
-	}
-	top->branch_size = 1;
-	branch->left = 0;
-	top->leaves[0].link = (size_t)(left - t->forest.data);
-	top->leaves[1].link = (size_t)(right - t->forest.data);
-	t->links++;
-	return 1;
-
-prev_vacant:
 	/* Split right into a new tree; place root above. */
 	if(!(right = tree_array_new(&t->forest))) return 0; /* Invalidates. */
 	lt = (left = t->forest.data + d->t)->branches[0].left;
@@ -294,6 +268,31 @@ prev_vacant:
 	left->branch_size = (branch = left->branches + 0)->left;
 	memmove(branch, branch + 1, sizeof *branch * left->branch_size);
 	d->t = d->prev.t;
+	return 1;
+
+full:
+	/* Locally full forest, no choice: split `top` and increase link count. */
+	if(!tree_array_reserve(&t->forest, t->forest.size + 2)) return 0;
+	top = t->forest.data + d->t; /* Invalidated. */
+	left = tree_array_new(&t->forest), assert(left);
+	left->branch_size = (lt = (branch = top->branches + 0)->left);
+	memcpy(left->branches, top->branches + 1, sizeof *branch * lt);
+	memcpy(left->leaves, top->leaves, sizeof *leaf * (lt + 1));
+	right = tree_array_new(&t->forest), assert(right && top->branch_size > lt);
+	right->branch_size = (rt = top->branch_size - lt - 1);
+	memcpy(right->branches, top->branches + lt + 1, sizeof *branch * rt);
+	memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt + 1));
+	/* Swap `top` and `forest[links++]`; contiguous by design choice. */
+	if(t->links != d->t) {
+		/* Pick any data (say left) and look it up, paying attention to the
+		 transitions from tree-to-tree. */
+		assert(0); /* FIXME: write this code. */
+	}
+	top->branch_size = 1;
+	branch->left = 0;
+	top->leaves[0].link = (size_t)(left - t->forest.data);
+	top->leaves[1].link = (size_t)(right - t->forest.data);
+	t->links++;
 	return 1;
 }
 
