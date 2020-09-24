@@ -216,30 +216,34 @@ static void trie_print(const struct trie *const t) {
 	printf("}\n");
 }
 
-/** Splits index `tree` from forest `t`, which must be a full data-tree.
- @param[prev] Index of the parent link-tree, unused if `tree` is root, (zero.)
- @param[prev_i] Index of the leaf on the parent tree, unused if `tree` is zero.
- @return Success; the tree is split into vacant trees.
+struct trie_descent {
+	size_t t; /* Tree index. */
+	struct { size_t t; unsigned i; } prev; /* Unless `!t`. */
+};
+
+/** Splits descent `d` from forest `t`. `d.t` which must be a full data-tree,
+ and `d.prev` must be set to a valid previous block if `d.t != 0`.
+ @return Success; the tree is split into vacant trees and `d.t` is the root.
  @throws[realloc, ERANGE] */
-static int trie_split(struct trie *const t,
-	const size_t tree, const size_t prev, const size_t prev_i) {
-	struct tree *top = t->forest.data + tree, *left, *right;
+static int trie_split(struct trie *const t, struct trie_descent *const d) {
+	struct tree *top = t->forest.data + d->t, *left, *right;
 	struct branch *branch;
 	union leaf *leaf;
 	unsigned lt, rt;
 	struct { unsigned b0, b1, i; } n;
 
-	assert(t && /* Enforce indices. */
-		(!tree || (tree >= t->links && prev < t->links
-		&& prev_i <= t->forest.data[prev].branch_size))
-		&& /* Full. */ top->branch_size == TRIE_BRANCH);
+	assert(t && d->t < t->forest.size
+		&& (!d->t || (d->t >= t->links && d->prev.t < t->links
+		&& d->prev.i <= t->forest.data[d->prev.t].branch_size))
+		&& top->branch_size == TRIE_BRANCH);
 
-	if(tree && t->forest.data[prev].branch_size < TRIE_BRANCH) goto prev_vacant;
+	if(d->t && t->forest.data[d->prev.t].branch_size < TRIE_BRANCH)
+		goto prev_vacant;
 
 	/* Full forest. Split `top` into new `left` and `right` sides. */
 	printf("No space; new left and right sides of the tree.\n");
 	if(!tree_array_reserve(&t->forest, t->forest.size + 2)) return 0;
-	top = t->forest.data + tree; /* Invalidated. */
+	top = t->forest.data + d->t; /* Invalidated. */
 	left = tree_array_new(&t->forest), assert(left);
 	left->branch_size = (lt = (branch = top->branches + 0)->left);
 	memcpy(left->branches, top->branches + 1, sizeof *branch * lt);
@@ -249,7 +253,7 @@ static int trie_split(struct trie *const t,
 	memcpy(right->branches, top->branches + lt + 1, sizeof *branch * rt);
 	memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt + 1));
 	/* Swap `top` and `forest[links++]`; contiguous by design choice. */
-	if(t->links != tree) {
+	if(t->links != d->t) {
 		/* Pick any data (say left) and look it up, paying attention to the
 		 transitions from tree-to-tree. */
 		assert(0);
@@ -267,21 +271,21 @@ static int trie_split(struct trie *const t,
 prev_vacant: /* Split right into a new tree; place root above. */
 	printf("Space; right into a new tree; place root above.\n");
 	if(!(right = tree_array_new(&t->forest))) return 0; /* Invalidates. */
-	lt = (/*branch =*/ (left = t->forest.data + tree)->branches + 0)->left;
+	lt = (left = t->forest.data + d->t)->branches[0].left;
 	/* Copy all right nodes from `left` into new tree `right`. */
 	right->branch_size = (rt = left->branch_size - lt - 1);
 	memcpy(right->branches, left->branches + lt + 1, sizeof *branch * rt);
 	memcpy(right->leaves, left->leaves + lt + 1, sizeof *leaf * (rt + 1));
 	/* Debug. */ /*{ char z[32]; sprintf(z, "graph/%lu_split_a.gv", counter); trie_graph(t, z); }*/
 	/* Copy the root from `left` into `top`, expanding the tree. */
-	n.b0 = 0, n.b1 = (top = t->forest.data + prev)->branch_size, n.i = 0;
+	n.b0 = 0, n.b1 = (top = t->forest.data + d->prev.t)->branch_size, n.i = 0;
 	while(n.b0 < n.b1) {
 		lt = (branch = top->branches + n.b0)->left + 1;
-		if(prev_i < n.b0 + lt) n.b1 = n.b0++ + (branch->left = lt);
+		if(d->prev.i < n.b0 + lt) n.b1 = n.b0++ + (branch->left = lt);
 		else n.b0 += lt, n.i += lt;
 	}
 	assert(n.b0 == n.b1 && n.b0 <= top->branch_size && n.i <= top->branch_size
-		&& prev_i == n.i);
+		&& d->prev.i == n.i);
 	/* branch_size = (b0) + (branch_size - b0) */
 	branch = top->branches + n.b0;
 	printf("->branch[%u] memmove(%u <- %u, %o)\n",
@@ -309,6 +313,7 @@ prev_vacant: /* Split right into a new tree; place root above. */
 	if(TRIESTR_TEST(key, bit.right)) n.t = right - t->forest.data;
 	bit.right++;
 	goto tree;*/
+	d->t = d->prev.t;
 	return 1;
 }
 
@@ -384,6 +389,17 @@ vacant_data_tree: /* Descend, expanding for insertion. Most common. */
 full_data_tree: /* Split at root of tree; move root up to link tree. */
 	printf("Split at root of tree.\n");
 	assert(tree->branch_size == n.b1 && n.b1 == TRIE_BRANCH);
+	/***********/
+	{
+		struct trie_descent d;
+		d.t = n.t, d.prev.t = n.prev.t, d.prev.i = n.prev.i;
+		if(!trie_split(t, &d)) return 0;
+		n.t = d.t;
+	}
+	trie_graph(t, "graph/split.gv");
+	goto tree;
+	assert(0);
+	/***********/	
 	branch = tree->branches + 0;
 	n.key = tree->leaves[0].data;
 	for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
