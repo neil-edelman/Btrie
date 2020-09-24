@@ -221,8 +221,8 @@ struct trie_descent {
 	struct { size_t t; unsigned i; } prev; /* Unless `!t`. */
 };
 
-/** Splits descent `d` from forest `t`. `d.t` which must be a full data-tree,
- and `d.prev` must be set to a valid previous block if `d.t != 0`.
+/** Splits index `d.t` of `d`, a full data-tree, from forest `t`. `d.prev` must
+ be set to a valid previous block if `d.t != 0`. Used in <fn:trie_add_unique>.
  @return Success; the tree is split into vacant trees and `d.t` is the root.
  @throws[realloc, ERANGE] */
 static int trie_split(struct trie *const t, struct trie_descent *const d) {
@@ -254,13 +254,11 @@ static int trie_split(struct trie *const t, struct trie_descent *const d) {
 	}
 	assert(n.b0 == n.b1 && n.b0 <= top->branch_size && n.i <= top->branch_size
 		&& d->prev.i == n.i);
-	/* branch_size = (b0) + (branch_size - b0) */
 	branch = top->branches + n.b0;
 	memmove(branch + 1, branch, sizeof *branch * (top->branch_size - n.b0));
 	branch->left = 0;
 	branch->skip = left->branches[0].skip;
-	/* branch_size + 1 = (n.i + 1) + (branch_size - n.i) */
-	leaf = top->leaves + n.i + 1; /* Left is already `a`, make leaf `b`. */
+	leaf = top->leaves + n.i + 1; /* Left is already set, make leaf right. */
 	memmove(leaf + 1, leaf, sizeof *leaf * (top->branch_size - n.i));
 	leaf->link = right - t->forest.data;
 	top->branch_size++;
