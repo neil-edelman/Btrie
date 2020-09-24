@@ -339,8 +339,8 @@ full_data_tree_prev_vacant: /* Split right into a new tree; place root above. */
 
 	/* Copy all right nodes from `a` into new tree `b`. */
 	b->branch_size = (right = n.b1 - left - 1);
-	memcpy(b->branches, tree->branches + left + 1, sizeof *branch * right);
-	memcpy(b->leaves, tree->leaves + left + 1, sizeof *leaf * (right + 1));
+	memcpy(b->branches, a->branches + left + 1, sizeof *branch * right);
+	memcpy(b->leaves, a->leaves + left + 1, sizeof *leaf * (right + 1));
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_a.gv", counter); trie_graph(t, z); }
 	print_forest(t);
 
@@ -361,7 +361,7 @@ full_data_tree_prev_vacant: /* Split right into a new tree; place root above. */
 		top->branch_size, n.b0 + 1, n.b0, top->branch_size - n.b0);
 	memmove(branch + 1, branch, sizeof *branch * (top->branch_size - n.b0));
 	branch->left = 0;
-	branch->skip = tree->branches[0].skip;
+	branch->skip = a->branches[0].skip;
 	/* branch_size + 1 = (n.i + 1) + (branch_size - n.i) */
 	leaf = top->leaves + n.i + 1; /* Left is already `a`, make leaf `b`. */
 	printf("->leaf[%u] memmove(%u <- %u, %u)\n",
@@ -375,8 +375,8 @@ full_data_tree_prev_vacant: /* Split right into a new tree; place root above. */
 
 	/* `a` must shed it's root and right side. */
 	printf("a branch size %u -> %u.\n", a->branch_size, a->branches->left);
-	a->branch_size = (branch = tree->branches + 0)->left;
-	memmove(branch, branch + 1, sizeof *branch * tree->branch_size);
+	a->branch_size = (branch = a->branches + 0)->left;
+	memmove(branch, branch + 1, sizeof *branch * a->branch_size);
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_c.gv", counter); trie_graph(t, z); }
 	n.prev.t = n.t, n.prev.i = n.i, printf("prev T%lu, i%u.\n", n.prev.t, n.prev.i);
 	if(TRIESTR_TEST(key, bit.b)) n.t = b - t->forest.data;
