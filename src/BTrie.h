@@ -264,7 +264,7 @@ vacant_link_tree: /* Go to another tree or branch off a new tree. */
 		else n.b0 += left, n.i += left, n.key = trie_left_link_key(t, tree,n.i);
 		bit.b++, bit.b0 = bit.b1;
 	}
-	n.prev.t = n.t, n.prev.i = n.i;
+	n.prev.t = n.t, n.prev.i = n.i, printf("prev T%lu, i%u.\n", n.prev.t, n.prev.i);
 	n.t = tree->leaves[n.i].link;
 	assert(n.b0 == n.b1 && n.t < t->forest.size && n.prev.t != n.t);
 	goto tree;
@@ -325,7 +325,7 @@ full_data_tree_prev_full: /* Split into new left and right sides. */
 	t->links++;
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_full.gv", counter); trie_graph(t, z); }
 	/* Update new state. */
-	n.prev.t = n.t, n.prev.i = n.i;
+	n.prev.t = n.t, n.prev.i = n.i, printf("prev T%lu, i%u.\n", n.prev.t, n.prev.i);
 	n.t = (TRIESTR_TEST(key, bit.b) ? b : a) - t->forest.data;
 	bit.b++;
 	goto tree;
@@ -334,18 +334,17 @@ full_data_tree_prev_vacant: /* Split right into a new tree; place root above. */
 	printf("Space; right into a new tree; place root above.\n");
 	assert(n.t && n.b1 > branch->left);
 	if(!(b = tree_array_new(&t->forest))) return 0;
-	top = t->forest.data + n.prev.t;
+	/* `a` is the original `tree`, (is invalidated by new.) */
 	left = (branch = (a = t->forest.data + n.t)->branches + 0)->left;
-	printf("top: "), print_tree(t, n.prev.t);
-	printf("left: "), print_tree(t, n.t);
-	/* Copy all right nodes from `tree` into new tree `b`. */
+
+	/* Copy all right nodes from `a` into new tree `b`. */
 	b->branch_size = (right = n.b1 - left - 1);
 	memcpy(b->branches, tree->branches + left + 1, sizeof *branch * right);
-	memcpy(b->leaves, tree->leaves + left + 1, sizeof(union leaf) *(right+1));
-	printf("right: "), print_tree(t, b - t->forest.data);
+	memcpy(b->leaves, tree->leaves + left + 1, sizeof *leaf * (right + 1));
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_a.gv", counter); trie_graph(t, z); }
 	print_forest(t);
-	/* Copy the root into `n.prev.t`. */
+
+	/* Copy the root from `a` into `top`, expanding the tree. */
 	top = t->forest.data + n.prev.t;
 	n.b0 = 0, n.b1 = top->branch_size, n.i = 0;
 	assert(n.prev.t < t->links && n.b1 < TRIE_BRANCH);
@@ -356,20 +355,30 @@ full_data_tree_prev_vacant: /* Split right into a new tree; place root above. */
 	}
 	assert(n.b0 == n.b1 && n.b0 <= top->branch_size && n.i <= top->branch_size
 		&& n.prev.i == n.i);
-	leaf = top->leaves + n.i + 1; /* Left is already [tree], make leaf right. */
-	memmove(leaf + 1, leaf, sizeof *leaf * (top->branch_size + 1 - n.i));
-	leaf->link = b - t->forest.data;
+	/* branch_size = (b0) + (branch_size - b0) */
 	branch = top->branches + n.b0;
+	printf("->branch[%u] memmove(%u <- %u, %o)\n",
+		top->branch_size, n.b0 + 1, n.b0, top->branch_size - n.b0);
 	memmove(branch + 1, branch, sizeof *branch * (top->branch_size - n.b0));
 	branch->left = 0;
 	branch->skip = tree->branches[0].skip;
+	/* branch_size + 1 = (n.i + 1) + (branch_size - n.i) */
+	leaf = top->leaves + n.i + 1; /* Left is already `a`, make leaf `b`. */
+	printf("->leaf[%u] memmove(%u <- %u, %u)\n",
+		top->branch_size+1, n.i + 2, n.i + 1, top->branch_size - n.i);
+	memmove(leaf + 1, leaf, sizeof *leaf * (top->branch_size - n.i));
+	leaf->link = b - t->forest.data;
 	top->branch_size++;
+	printf("top now: "), print_tree(t, n.prev.t);
+	print_forest(t);
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_b.gv", counter); trie_graph(t, z); }
-	/* Original tree, `n.t`, has just lost it's right side. */
+
+	/* `a` must shed it's root and right side. */
 	printf("Tree branch size %u -> %u.\n", tree->branch_size, tree->branches->left);
 	a->branch_size = (branch = tree->branches + 0)->left;
 	memmove(branch, branch + 1, sizeof *branch * tree->branch_size);
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_c.gv", counter); trie_graph(t, z); }
+	n.prev.t = n.t, n.prev.i = n.i, printf("prev T%lu, i%u.\n", n.prev.t, n.prev.i);
 	if(TRIESTR_TEST(key, bit.b)) n.t = b - t->forest.data;
 	bit.b++;
 	goto tree;
