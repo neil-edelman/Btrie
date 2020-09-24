@@ -95,7 +95,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 /* Order is the maximum is number of `data` leaves, and maximum branching
  factor of `link` leaves, as <Knuth, 1998 Art 3>. A non-empty, complete binary
  tree, so `branches + 1 = leaves`. */
-#define TRIE_MAX_LEFT 6/*3*/ /* `<= max(tree:left)` set by data type, `> 0`. */
+#define TRIE_MAX_LEFT 3 /* `<= max(tree:left)` set by data type, `> 0`. */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* (Improbable) worst-case, all left. */
 #define TRIE_ORDER (TRIE_BRANCH + 1)
 
