@@ -95,7 +95,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 /* Order is the maximum is number of `data` leaves, and maximum branching
  factor of `link` leaves, as <Knuth, 1998 Art 3>. A non-empty, complete binary
  tree, so `branches + 1 = leaves`. */
-#define TRIE_MAX_LEFT 3 /* `<= max(tree:left)` set by data type, `> 0`. */
+#define TRIE_MAX_LEFT 6/*3*/ /* `<= max(tree:left)` set by data type, `> 0`. */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* (Improbable) worst-case, all left. */
 #define TRIE_ORDER (TRIE_BRANCH + 1)
 
@@ -334,7 +334,7 @@ full_data_tree_prev_vacant: /* Split right into a new tree; place root above. */
 	printf("Space; right into a new tree; place root above.\n");
 	assert(n.t && n.b1 > branch->left);
 	if(!(b = tree_array_new(&t->forest))) return 0;
-	/* `a` is the original `tree`, (is invalidated by new.) */
+	/* `a` is the original tree, (is invalidated by new.) */
 	left = (branch = (a = t->forest.data + n.t)->branches + 0)->left;
 
 	/* Copy all right nodes from `a` into new tree `b`. */
@@ -374,7 +374,7 @@ full_data_tree_prev_vacant: /* Split right into a new tree; place root above. */
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_b.gv", counter); trie_graph(t, z); }
 
 	/* `a` must shed it's root and right side. */
-	printf("Tree branch size %u -> %u.\n", tree->branch_size, tree->branches->left);
+	printf("a branch size %u -> %u.\n", a->branch_size, a->branches->left);
 	a->branch_size = (branch = tree->branches + 0)->left;
 	memmove(branch, branch + 1, sizeof *branch * tree->branch_size);
 	/* Debug. */ { char z[32]; sprintf(z, "graph/%lu_split_c.gv", counter); trie_graph(t, z); }
