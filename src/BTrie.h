@@ -316,10 +316,11 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 	printf("ADD: %s\n", key);
 
 	/* Empty special case. */
-	if(!t->forest.size) return printf("empty forest; creating tree0.\n"), (tree = tree_array_new(&t->forest))
-		&& (assert(!t->links), tree->branch_size = 0, tree->leaves[0].data = key, 1);
-
-	bit.b = 0, n.t = 0; /* Bit beginning; tree top. */
+	if(!t->forest.size) return assert(!t->links),
+		(tree = tree_array_new(&t->forest)) && (tree->branch_size = 0,
+		tree->leaves[0].data = key, 1);
+	/* Otherwise start the `bit` at the beginning, tree at the top. */
+	bit.b = 0, n.t = 0;
 tree:
 	/* `tree` defined. Populate the node with `n.t`, (except `prev`, `key`,)
 	 and the bit with `bit.b`, (except `b1`.) */
@@ -403,10 +404,10 @@ branch_link_insert: /* Happens rarely. */
 	return 0;
 }
 
-static int trie_add(struct trie *const t, const char *const key) {
-	assert(t && key);
-	return trie_get(t, key) ? 0 : trie_add_unique(t, key);
-}
+/** @return If `key` is already in `t`, returns false, otherwise success.
+ @throws[realloc, ERANGE] */
+static int trie_add(struct trie *const t, const char *const key)
+	{ return trie_get(t, key) ? 0 : trie_add_unique(t, key); }
 
 /** Given branch index `b` in `tree`, calculate (inefficiently) the right
  child branches. Used in <fn:trie_graph>. @order \O(log `size`) */
