@@ -388,7 +388,7 @@ vacant_data_insert: /* Place a leaf in the vacancy. */
 	assert(n.i <= tree->branch_size), /*assert(!n.b0 == !bit.b0),*/
 		assert(TRIESTR_DIFF(key, n.key, bit.b));
 	/* Left or right leaf. */
-	if(TRIESTR_TEST(key, bit.b)) printf("insert right\n"), n.i += (left = n.b1 - n.b0) + 1; else printf("insert left\n"), left = 0;
+	if(TRIESTR_TEST(key, bit.b)) n.i += (left = n.b1 - n.b0) + 1; else left = 0;
 	/* Insert leaf-and-branch pair. */
 	leaf = tree->leaves + n.i;
 	memmove(leaf + 1, leaf, sizeof *leaf * (tree->branch_size + 1 - n.i));
