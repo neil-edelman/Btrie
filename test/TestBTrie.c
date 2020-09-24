@@ -35,7 +35,7 @@ static void test_basic_trie_str(void) {
 	for(i = 0; i < words_size; i++) {
 		w = words[i];
 		s = trie_get(&t, w), assert(!s);
-		r = trie_add(&t, w, i + 1), assert(r);
+		r = trie_add(&t, w), assert(r);
 		sprintf(fn, "graph/word-%lu.gv", (unsigned long)i + 1);
 		r = trie_graph(&t, fn), assert(r);
 		s = trie_get(&t, w), assert(s == w);
@@ -46,7 +46,7 @@ static void test_basic_trie_str(void) {
 	for(i = 0; i < /*parole_size*/30; i++) {
 		w = parole[i];
 		s = trie_get(&t, w), assert(!s);
-		r = trie_add(&t, w, i + 1), assert(r);
+		r = trie_add(&t, w), assert(r);
 		sprintf(fn, "graph/parole-%lu.gv", (unsigned long)i + words_size);
 		r = trie_graph(&t, fn), assert(r);
 		s = trie_get(&t, w), assert(s == w);
