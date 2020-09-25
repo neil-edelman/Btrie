@@ -199,7 +199,7 @@ static void print_tree(const struct trie *const t, const size_t tr) {
 	printf("],leaf[");
 	if((size_t)(tree - t->forest.data) < t->links) {
 		for(i = 0; i <= tree->branch_size; i++)
-			printf("%s%lu", i ? ", " : "", tree->leaves[i].link);
+			printf("%s%lu", i ? ", " : "", (unsigned long)tree->leaves[i].link);
 	} else {
 		for(i = 0; i <= tree->branch_size; i++)
 			printf("%s%s", i ? ", " : "", tree->leaves[i].data);
@@ -333,7 +333,7 @@ descend:
 	/* Split the tree if necessary. */
 	if(!is_link && tree->branch_size >= TRIE_BRANCH) {
 		struct trie_descent d;
-		d.t = n.t, d.prev.t = n.prev.t, d.prev.i = n.prev.i;
+		if((d.t = n.t)) d.prev.t = n.prev.t, d.prev.i = n.prev.i;
 		if(!trie_split(t, &d)) return 0; /* Invalidates. */
 		trie_graph(t, "graph/split.gv");
 		n.b1 = (tree = t->forest.data + (n.t = d.t))->branch_size;
@@ -371,7 +371,7 @@ insert:
 	assert(n.i <= tree->branch_size && TRIESTR_DIFF(key, n.key, bit.b));
 	if(is_link) goto link_insert;
 	/* Left or right leaf. */
-	printf("add %s differs in bit %lu: ", key, bit.b), print_tree(t, n.t);
+	printf("add %s differs in bit %lu: ", key, (unsigned long)bit.b), print_tree(t, n.t);
 	if(TRIESTR_TEST(key, bit.b)) n.i += (left = n.b1 - n.b0) + 1; else left = 0;
 	leaf = tree->leaves + n.i;
 	printf("leaf[%u] memmove(%u, %u, %u) ", tree->branch_size+1, n.i+1, n.i, tree->branch_size + 1 -n.i), print_tree(t, 0);
@@ -380,9 +380,10 @@ insert:
 	branch = tree->branches + n.b0;
 	printf("branch[%u] memmove(%u, %u, %u) ", tree->branch_size, n.b0+1, n.b0, tree->branch_size - n.b0), print_tree(t, 0);
 	if(n.b0 != n.b1) { /* Split skip value with the existing branch. */
-		assert(bit.b0 + branch->skip >= bit.b + !n.b0);
+		assert(bit.b0 + branch->skip >= bit.b + !n.b0
+			&& branch->skip + bit.b0 - bit.b - !n.b0 < 256);
 		printf("branch skip %u -> ", branch->skip);
-		branch->skip += bit.b0 - bit.b - !n.b0;
+		branch->skip += (unsigned char)bit.b0 - bit.b - !n.b0;
 		printf("%u\n", branch->skip);
 	}
 	memmove(branch + 1, branch, sizeof *branch * (tree->branch_size - n.b0));
