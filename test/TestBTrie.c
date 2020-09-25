@@ -18,7 +18,7 @@
 #include "../src/BTrie.h"
 
 /** Specific test for str. */
-static void test_basic_trie_str(void) {
+static void test_basic(void) {
 	extern const char *const parole[];
 	/*extern const size_t parole_size;*/
 	const char *words[] = { "f", "o", "u", "m", "n", "v", "x", "y", "z", "p",
@@ -153,6 +153,6 @@ static int trie_graph(const struct Trie *const t, const char *const fn) {
 int main(void) {
 	unsigned seed = (unsigned)clock();
 	srand(seed), rand(), printf("Seed %u.\n", seed);
-	test_basic_trie_str();
+	test_basic();
 	return EXIT_SUCCESS;
 }
