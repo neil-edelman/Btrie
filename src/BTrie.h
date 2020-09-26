@@ -179,8 +179,9 @@ static int trie_graph(const struct trie *const t, const char *const fn);
 static void print_trie(const struct trie *const t);
 
 struct trie_descent {
-	size_t t; /* Tree index. */
+	size_t t; /* Tree index; in/out. */
 	struct { size_t t; unsigned i; } prev; /* Unless `!t`. */
+	struct { size_t t; unsigned b; } out; /* Output variables. */
 };
 
 /** Splits full data-tree index `d.t` of `d`, from forest `t`. If `d.t != 0`,
@@ -228,7 +229,7 @@ static int trie_split_data(struct trie *const t, struct trie_descent *const d) {
 	/* Now `left`, the original tree, doesn't have the root and right side. */
 	left->branch_size = (branch = left->branches + 0)->left;
 	memmove(branch, branch + 1, sizeof *branch * left->branch_size);
-	d->t = d->prev.t;
+	d->out.t = d->prev.t, d->out.b = n.b0;
 	return 1;
 
 full:
@@ -254,6 +255,7 @@ full:
 	top->leaves[0].link = (size_t)(left - t->forest.data);
 	top->leaves[1].link = (size_t)(right - t->forest.data);
 	t->links++;
+	d->out.t = d->t, d->out.b = 0;
 	return 1;
 }
 
@@ -304,13 +306,27 @@ descend:
 	printf("tree "), print_tree(t, n.t);
 	n.key = is_link ? trie_left_link_key(t, tree, 0) : tree->leaves[0].data;
 
-	/* Split the tree if necessary. (Follow-up is wrong.) */
+	/* Split the tree if necessary. */
 	if(!is_link && tree->branch_size >= TRIE_BRANCH) {
 		struct trie_descent d;
+		assert(tree->branch_size == TRIE_BRANCH);
+		/* Descend just the root. */
+		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
+			if(TRIESTR_DIFF(key, n.key, bit.b)) goto insert;
+		
+		/*...here!!! need to go up to the root's skip value _first_, and then
+		 if it splits, we need to a insert new tree with 1 node into the linked
+		 list instead of splitting it. */
 		if((d.t = n.t)) d.prev.t = n.prev.t, d.prev.i = n.prev.i; /* Copy. */
 		if(!trie_split_data(t, &d)) return 0; /* Invalidates. */
-		n.t = d.t; /* Copy this back over. */
+		n.t = d.out.t; /* Copy this back over. */
 		trie_graph(t, "graph/split.gv");
+		/*....*/
+		/* go though the values of skip, if early, update, and ... no, that's
+		 not it. branch has been added.
+		 
+		 We need to add the value in `trie_split_data` because it's before the
+		 split, it messes up and re-arrages. */
 		goto descend;
 	}
 
