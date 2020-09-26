@@ -483,9 +483,8 @@ static int trie_graph(const struct trie *const t, const char *const fn) {
 			unsigned br, lf;
 			fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
 				"\t\tstyle = filled; fillcolor = lightgray; "
-				"label = \"tree %lu\";\n"
-				"\t\tdud%lu [shape = point, style = invis];\n",
-				(unsigned long)tr, (unsigned long)tr, (unsigned long)tr);
+				"label = \"tree %lu\";\n",
+				(unsigned long)tr, (unsigned long)tr);
 			fprintf(fp, "\t\t// branches\n");
 			for(br = 0; br < tree->branch_size; br++) {
 				struct branch *const branch = tree->branches + br;
