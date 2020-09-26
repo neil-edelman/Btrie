@@ -304,15 +304,14 @@ descend:
 	printf("tree "), print_tree(t, n.t);
 	n.key = is_link ? trie_left_link_key(t, tree, 0) : tree->leaves[0].data;
 
-	/* Split the tree if necessary. */
+	/* Split the tree if necessary. (Follow-up is wrong.) */
 	if(!is_link && tree->branch_size >= TRIE_BRANCH) {
 		struct trie_descent d;
-		if((d.t = n.t)) d.prev.t = n.prev.t, d.prev.i = n.prev.i;
+		if((d.t = n.t)) d.prev.t = n.prev.t, d.prev.i = n.prev.i; /* Copy. */
 		if(!trie_split_data(t, &d)) return 0; /* Invalidates. */
+		n.t = d.t; /* Copy this back over. */
 		trie_graph(t, "graph/split.gv");
-		n.b1 = (tree = t->forest.data + (n.t = d.t))->branch_size;
-		assert(n.t < t->links), is_link = 1;
-		printf("now tree "), print_tree(t, n.t);
+		goto descend;
 	}
 
 	/* Descend the tree. */
