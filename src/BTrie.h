@@ -15,11 +15,9 @@
  * These are non-empty complete binary trees;
    `branches = (leaves \in [1, order]) - 1`. As is the trie itself, (with the
    extension of empty); the discrepancy is made up in link-leaves.
- * In B-Tree parlance, leaf-nodes, are now data-trees.
+ * In B-Tree parlance, leaf-nodes are now data-trees.
  * The middle of nodes (implicit root of bst) is now the root of a tree.
- * Trees can have [1, order] leaves by necessity; sharing between siblings, as
-   in a B^*-Tree, is not possible because the trie is fixed, it cannot do a
-   rotation.
+ * Trees can have [1, order] leaves by necessity; it cannot do a rotation.
 
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code.
@@ -109,8 +107,10 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* (Improbable) worst-case, all left. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / data. */
 
-/** Fixed-maximum-size semi-implicit, (`right` is all the remaining branches
- after `left`: don't have enough data to go up,) trees in the trie-forest. */
+/** Fixed-maximum-size trees in the trie-forest. A PATRICiA trie encodes the
+ length of the bits in `skip`, so instead of going with in-order branches, it
+ is natural to go with pre-order. These are semi-implicit in that `right` is
+ all the remaining branches after `left`: don't have enough data to go up. */
 struct tree {
 	unsigned char bsize;
 	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
@@ -197,8 +197,7 @@ static int add_unique(struct trie *const f, const char *const key) {
 	struct { struct tree *tree; size_t t; const char *key;
 		enum { VACANT_DATA, LINK, FULL, LINK_FULL } state; } t; /* `t \in f`. */
 	struct { unsigned b0, b1, i; } n; /* Node branch range, leaf accumulator. */
-	/*struct { unsigned t, i; } prev;*/ /* Previous tree, defined if `!n`. */
-	int is_vacant_path = 0; /* Any vacancy on the path amoung link-trees. */
+	struct { size_t t, b; int is; } vacant; /* Backtrack to vacanacy. */
 	const char *sample; /* String from trie to compare with `key`. */
 	struct branch *branch;
 	union leaf *leaf;
@@ -209,16 +208,18 @@ static int add_unique(struct trie *const f, const char *const key) {
 		(t.tree = tree_array_new(&f->forest)) && (t.tree->bsize = 0,
 		t.tree->leaves[0].data = key, 1);
 
-	/* Start at the beginning and top. */
-	bit.b = 0, t.t = 0;
+	/* Start at the beginning of the key and root of the forest. */
+	vacant.is = 0, bit.b = 0, t.t = 0;
 	do { /* Descend tree. */
+		printf("tree %lu.\n", t.t);
 		assert(t.t < f->forest.size);
 		n.b0 = 0, n.b1 = (t.tree = f->forest.data + t.t)->bsize, n.i = 0;
 		assert(t.tree->bsize <= TRIE_BRANCH);
 		t.state = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
 		bit.b0 = bit.b;
-		if((t.state & LINK_FULL) == LINK) is_vacant_path = 1;
 		printf("tree "), print_tree(f, t.t);
+		/* May use for backtracking later, (alternative is to save leaves.) */
+		if(t.state == LINK) vacant.t = t.t, vacant.b = bit.b;
 		sample = (t.state & LINK)
 			? trie_link_key(f, t.tree, n.i) : t.tree->leaves[n.i].data;
 		while(n.b0 < n.b1) { /* Branches. */
@@ -238,17 +239,24 @@ static int add_unique(struct trie *const f, const char *const key) {
 		}
 		assert(n.b0 == n.b1 && n.i <= t.tree->bsize);
 		/* If link-tree, `t.t` is updated and we continue down another tree. */
-	} while((t.state & LINK) && (/*prev.t = t.t, prev.i = t.i,*/ t.t = t.tree->leaves[n.i].link, 1));
+	} while((t.state & LINK) && (t.t = t.tree->leaves[n.i].link, 1));
 	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++; /* Got to the leaves. */
 insert:
 	assert(n.i <= t.tree->bsize);
 	if(t.state) { /* We need to add more trees. */
 		struct tree *top, *right, *left;
-		printf("is vacant path: %d\n", is_vacant_path);
-		/* Fail-fast; single-point-of-failure bef. modification. Invalidates. */
+		if(vacant.is) {
+			printf("prev vancancy is tree%lu %lu, reseving 1.\n",
+				vacant.t, vacant.b);
+		} else {
+			printf("no prev vancany, reserving 2\n");
+		}
+		/* Fail-fast; single-point-of-failure before change. Invalidates. */
 		if(!tree_array_reserve(&f->forest, f->forest.size + 1
-			+ !is_vacant_path)) return 0;
-		
+			+ !vacant.is)) return 0;
+		if(!vacant.is) { /* Worst possible state. */
+			assert(t.state == FULL);
+		}
 		if(!n.b0) { /* Above root. */
 			printf("is at root. will be careful.\n");
 			if(!t.t) {
