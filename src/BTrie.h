@@ -187,9 +187,9 @@ static int add_unique(struct trie *const f, const char *const key) {
 	struct { size_t b, b0, b1; } bit; /* `b \in [b0, b1]` inside branch. */
 	struct { struct tree *tree; size_t t; const char *key; } t; /* `t \in f`. */
 	struct { unsigned b0, b1, i; } n; /* Node branch range, leaf accumulator. */
-	enum { VACANT_DATA, LINK, FULL, LINK_FULL } status;
+	enum { VACANT_DATA, LINK, FULL, LINK_FULL } state; /* Tree state. */
+	int is_vacant_path = 0; /* Any vacancy on the path amoung link-trees. */
 	const char *sample;
-	/* Temporary variables for convenience. */
 	struct branch *branch;
 	union leaf *leaf;
 	unsigned left;
@@ -206,32 +206,34 @@ descend:
 	assert(t.t < f->forest.size);
 	n.b0 = 0, n.b1 = (t.tree = f->forest.data + t.t)->bsize, n.i = 0;
 	assert(t.tree->bsize <= TRIE_BRANCH);
-	status = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
+	state = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
 	bit.b0 = bit.b;
+	if((state & LINK_FULL) == LINK) is_vacant_path = 1;
 	printf("tree "), print_tree(f, t.t);
-	sample = (status & LINK) ? trie_link_key(f, t.tree, 0) : t.tree->leaves[0].data;
+	sample = (state & LINK)
+		? trie_link_key(f, t.tree, 0) : t.tree->leaves[0].data;
 	while(n.b0 < n.b1) {
 		branch = t.tree->branches + n.b0;
 		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
 			if(TRIESTR_DIFF(key, sample, bit.b)) goto insert;
 		left = branch->left + 1;
 		if(!TRIESTR_TEST(key, bit.b)) {
-			if(!status) branch->left = left;
+			if(!state) branch->left = left;
 			n.b1 = n.b0++ + left;
 		} else {
 			n.b0 += left, n.i += left;
-			sample = (status & LINK)
+			sample = (state & LINK)
 				? trie_link_key(f, t.tree, n.i) : t.tree->leaves[n.i].data;
 		}
 		bit.b++, bit.b0 = bit.b1;
 	}
 	assert(n.b0 == n.b1 && n.i <= t.tree->bsize);
-	if(status & LINK) { t.t = t.tree->leaves[n.i].link; goto descend; }
+	if(state & LINK) { t.t = t.tree->leaves[n.i].link; goto descend; }
 	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++;
 
 insert:
 	assert(n.i <= t.tree->bsize);
-	if(status) assert(0);
+	if(state) printf("is vacant path: %d\n", is_vacant_path), assert(0);
 	/* Left or right leaf. */
 	printf("add %s differs in bit %lu: ", key, (unsigned long)bit.b), print_tree(f, t.t);
 	/* Insert leaf right or left. */
