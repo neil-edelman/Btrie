@@ -16,6 +16,7 @@
    `branches = (leaves \in [1, order]) - 1`. As is the trie itself, (with the
    extension of empty); the discrepancy is made up in link-leaves.
  * In B-Tree parlance, leaf-nodes, are now data-trees.
+ * The middle is now the root of a tree.
  * However, trees can have [1, order] leaves by necessity; sharing between
    siblings is not possible because the trie is fixed, it cannot do a rotation.
 
@@ -183,13 +184,32 @@ static const char *trie_link_key(struct trie *const t, struct tree *tree,
 	return t->forest.data[link].leaves[0].data;
 }
 
+
+/*
+add_rec(x,u) {
+	i = find(u.keys, x);
+	if(u.children[i]) {
+		u.add(x,-1);
+	} else {
+		w = add_rec(x, u.children[i]);
+		assert(!w); // unique
+	}
+	return u.full() ? u.split() : 0;
+}
+
+add(x) {
+	w = add_rec(x, ri);
+	
+}
+*/
+
 static int add_unique(struct trie *const f, const char *const key) {
 	struct { size_t b, b0, b1; } bit; /* `b \in [b0, b1]` inside branch. */
-	struct { struct tree *tree; size_t t; const char *key; } t; /* `t \in f`. */
+	struct { struct tree *tree; size_t t; const char *key;
+		enum { VACANT_DATA, LINK, FULL, LINK_FULL } state; } t; /* `t \in f`. */
 	struct { unsigned b0, b1, i; } n; /* Node branch range, leaf accumulator. */
-	enum { VACANT_DATA, LINK, FULL, LINK_FULL } state; /* Tree state. */
 	int is_vacant_path = 0; /* Any vacancy on the path amoung link-trees. */
-	const char *sample;
+	const char *sample; /* String from trie to compare with `key`. */
 	struct branch *branch;
 	union leaf *leaf;
 	unsigned left;
@@ -201,39 +221,40 @@ static int add_unique(struct trie *const f, const char *const key) {
 
 	/* Start at the beginning and top. */
 	bit.b = 0, t.t = 0;
-
-descend:
-	assert(t.t < f->forest.size);
-	n.b0 = 0, n.b1 = (t.tree = f->forest.data + t.t)->bsize, n.i = 0;
-	assert(t.tree->bsize <= TRIE_BRANCH);
-	state = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
-	bit.b0 = bit.b;
-	if((state & LINK_FULL) == LINK) is_vacant_path = 1;
-	printf("tree "), print_tree(f, t.t);
-	sample = (state & LINK)
-		? trie_link_key(f, t.tree, 0) : t.tree->leaves[0].data;
-	while(n.b0 < n.b1) {
-		branch = t.tree->branches + n.b0;
-		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
-			if(TRIESTR_DIFF(key, sample, bit.b)) goto insert;
-		left = branch->left + 1;
-		if(!TRIESTR_TEST(key, bit.b)) {
-			if(!state) branch->left = left;
-			n.b1 = n.b0++ + left;
-		} else {
-			n.b0 += left, n.i += left;
-			sample = (state & LINK)
-				? trie_link_key(f, t.tree, n.i) : t.tree->leaves[n.i].data;
+	do { /* Descend tree. */
+		assert(t.t < f->forest.size);
+		n.b0 = 0, n.b1 = (t.tree = f->forest.data + t.t)->bsize, n.i = 0;
+		assert(t.tree->bsize <= TRIE_BRANCH);
+		t.state = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
+		bit.b0 = bit.b;
+		if((t.state & LINK_FULL) == LINK) is_vacant_path = 1;
+		printf("tree "), print_tree(f, t.t);
+		sample = (t.state & LINK)
+			? trie_link_key(f, t.tree, n.i) : t.tree->leaves[n.i].data;
+		while(n.b0 < n.b1) { /* Branches. */
+			branch = t.tree->branches + n.b0;
+			for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
+				if(TRIESTR_DIFF(key, sample, bit.b)) goto insert;
+			left = branch->left + 1;
+			if(!TRIESTR_TEST(key, bit.b)) {
+				if(!t.state) branch->left = left;
+				n.b1 = n.b0++ + left;
+			} else {
+				n.b0 += left, n.i += left;
+				sample = (t.state & LINK)
+					? trie_link_key(f, t.tree, n.i) : t.tree->leaves[n.i].data;
+			}
+			bit.b++, bit.b0 = bit.b1;
 		}
-		bit.b++, bit.b0 = bit.b1;
-	}
-	assert(n.b0 == n.b1 && n.i <= t.tree->bsize);
-	if(state & LINK) { t.t = t.tree->leaves[n.i].link; goto descend; }
-	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++;
-
+		assert(n.b0 == n.b1 && n.i <= t.tree->bsize);
+		/* If link-tree, `t.t` is updated and we continue down another tree. */
+	} while((t.state & LINK) && (t.t = t.tree->leaves[n.i].link, 1));
+	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++; /* Got to the leaves. */
 insert:
 	assert(n.i <= t.tree->bsize);
-	if(state) printf("is vacant path: %d\n", is_vacant_path), assert(0);
+	if(t.state) { /* We need to add more trees. */
+		printf("is vacant path: %d\n", is_vacant_path), assert(0);
+	}
 	/* Left or right leaf. */
 	printf("add %s differs in bit %lu: ", key, (unsigned long)bit.b), print_tree(f, t.t);
 	/* Insert leaf right or left. */
