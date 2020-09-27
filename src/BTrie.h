@@ -103,7 +103,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
 #define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
 /* Setting this to 2 gets an isometry of a Red-Black Trie, as it were. */
-#define TRIE_MAX_LEFT 0/*3*/ /* `[0, max(tree.left)]` set by data type (255.) */
+#define TRIE_MAX_LEFT 1 /* `[1, max(tree.left)]` set by data type (255.) */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* (Improbable) worst-case, all left. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / data. */
 
@@ -186,12 +186,6 @@ static const char *trie_link_key(struct trie *const t, struct tree *tree,
 	return t->forest.data[link].leaves[0].data;
 }
 
-
-
-static const char *split(struct trie *const f, const size_t t) {
-	
-}
-
 static int add_unique(struct trie *const f, const char *const key) {
 	struct { size_t b, b0, b1; } bit; /* `b \in [b0, b1]` inside branch. */
 	struct { struct tree *tree; size_t t; const char *key;
@@ -254,8 +248,30 @@ insert:
 		/* Fail-fast; single-point-of-failure before change. Invalidates. */
 		if(!tree_array_reserve(&f->forest, f->forest.size + 1
 			+ !vacant.is)) return 0;
-		if(!vacant.is) { /* Worst possible state. */
-			assert(t.state == FULL);
+		if(vacant.is) { /*  */
+			assert(0);
+		} else { /* Locally full forest: split `top`; increase links. */
+			unsigned rt;
+			top = f->forest.data + t.t;
+			left = tree_array_new(&f->forest), assert(left);
+			left->bsize = (lt = (branch = top->branches + 0)->left);
+			memcpy(left->branches, top->branches + 1, sizeof *branch * lt);
+			memcpy(left->leaves, top->leaves, sizeof *leaf * (lt + 1));
+			right = tree_array_new(&f->forest), assert(right && top->bsize >lt);
+			right->bsize = (rt = top->bsize - lt - 1);
+			memcpy(right->branches, top->branches + lt + 1, sizeof *branch *rt);
+			memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt +1));
+			/* Swap `top` and `forest[links++]`; contiguous by design choice. */
+			if(f->links != t.t) {
+				/* Pick any data (say left) and look it up, paying attention to
+				 the transitions from tree-to-tree. */
+				assert(0); /* FIXME: write this code. */
+			}
+			top->bsize = 1;
+			branch->left = 0;
+			top->leaves[0].link = (size_t)(left - f->forest.data);
+			top->leaves[1].link = (size_t)(right - f->forest.data);
+			f->links++;
 		}
 		if(!n.b0) { /* Above root. */
 			printf("is at root. will be careful.\n");
