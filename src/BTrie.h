@@ -3,9 +3,21 @@
 
  @subtitle Trie
 
- Trie pre-order internal nodes in the style of <Morrison, 1968 PATRICiA>.
- Mixed with BTree. Assumes the leaves are concentrated at high depth, or else
- there is a lot of wasted space. Think about this more.
+ Tries are isomorphic to <Morrison, 1968 PATRICiA>. For speed, instead of
+ being packed in an array, they are broken down into a linked-forest, as
+ <Bayer, McCreight, 1972 Large (B-Trees)>, but uses the improved lexicon of
+ <Knuth, 1998 Art 3>.
+
+ A group of nodes, who's maximum is set by the order, in B-Tree parlance, is
+ again a node. To resolve this conflicting terminology,
+
+ * Every path through the trie-forest has the same number of trees.
+ * These are non-empty complete binary trees;
+   `branches = (leaves \in [1, order]) - 1`. As is the trie itself, (with the
+   extension of empty); the discrepancy is made up in link-leaves.
+ * In B-Tree parlance, leaf-nodes, are now data-trees.
+ * However, trees can have [1, order] leaves by necessity; sharing between
+   siblings is not possible because the trie is fixed, it cannot do a rotation.
 
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. I fear it may double the code.
@@ -86,21 +98,16 @@ static type *name##_array_new(struct name##_array *const a) { \
 	return name##_array_reserve(a, a->size + 1) ? a->data + a->size++ : 0; \
 }
 
-
 #define TRIESTR_TEST(a, i) (a[i >> 3] & (128 >> (i & 7)))
 #define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
 #define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
 #define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
-/* Order is the maximum is number of `data` leaves, and maximum branching
- factor of `link` leaves, as <Knuth, 1998 Art 3>. A non-empty, complete binary
- tree, so `branches + 1 = leaves`. */
-#define TRIE_MAX_LEFT 3 /* `<= max(tree:left)` set by data type, `> 0`. */
+#define TRIE_MAX_LEFT 3 /* `1 <= max_left <= max(tree.left)` set by type. */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* (Improbable) worst-case, all left. */
-#define TRIE_ORDER (TRIE_BRANCH + 1)
+#define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / data. */
 
-/** Splits trie into a forest, as <Bayer, McCreight, 1972 Large> B-Trees.
- Packed less strictly than possible to save space and confine updates to
- `\O(1)`, while being in an array. */
+/** Fixed-maximum-size semi-implicit, (`right` is all the remaining branches
+ after `left`, so no going up,) trees in the trie-forest. */
 struct tree {
 	unsigned char bsize;
 	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
@@ -108,26 +115,12 @@ struct tree {
 		leaves[TRIE_ORDER];
 };
 MIN_ARRAY(tree, struct tree)
-/** Tries are isomorphic to <Morrison, 1968 PATRICiA>, but in a linked forest
- of order-node-limited trees. Link trees, who's leaves are indices to another,
- are on top, `empty and !links or links < forest.size`. Link trees not on the
- border with data trees are completely full. OR Link trees that are not the
- root are completely full. Have to think about that. */
+/** Trie-forest. Link-trees are on top by design choice,
+ `empty and !links or links < forest.size`. */
 struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { 0, ARRAY_IDLE }
 #endif /* !zero --> */
-
-
-
-/** @return Whether `a` and `b` are equal up to the minimum. */
-/*static int trie_is_prefix(const char *a, const char *b) {
-	for( ; ; a++, b++) {
-		if(*a == '\0') return 1;
-		if(*a != *b) return *b == '\0';
-	}
-}*/
-
 
 
 /** New idle `t`. */
@@ -174,9 +167,97 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 	return leaf && !strcmp(leaf, key) ? leaf : 0;
 }
 
+
 static void print_tree(const struct trie *const t, const size_t tr);
 static int trie_graph(const struct trie *const t, const char *const fn);
 static void print_trie(const struct trie *const t);
+
+/** Use this when calculating the left key of a link-tree.
+ @order \O(\log_{TRIE_ORDER} `size`) */
+static const char *trie_link_key(struct trie *const t, struct tree *tree,
+	const unsigned i) {
+	size_t link = tree->leaves[i].link;
+	assert(t->forest.data <= tree && t->forest.data + t->links > tree
+		&& i <= tree->bsize && (size_t)(tree - t->forest.data) != link);
+	while(link < t->links) link = t->forest.data[link].leaves[0].link;
+	return t->forest.data[link].leaves[0].data;
+}
+
+static int add_unique(struct trie *const f, const char *const key) {
+	struct { size_t b, b0, b1; } bit; /* `b \in [b0, b1]` inside branch. */
+	struct { struct tree *tree; size_t t; const char *key; } t; /* `t \in f`. */
+	struct { unsigned b0, b1, i; } n; /* Node branch range, leaf accumulator. */
+	enum { VACANT_DATA, LINK, FULL, LINK_FULL } status;
+	const char *sample;
+	/* Temporary variables for convenience. */
+	struct branch *branch;
+	union leaf *leaf;
+	unsigned left;
+
+	/* Empty special case. */
+	if(!f->forest.size) return assert(!f->links),
+		(t.tree = tree_array_new(&f->forest)) && (t.tree->bsize = 0,
+		t.tree->leaves[0].data = key, 1);
+
+	/* Start at the beginning and top. */
+	bit.b = 0, t.t = 0;
+
+descend:
+	assert(t.t < f->forest.size);
+	n.b0 = 0, n.b1 = (t.tree = f->forest.data + t.t)->bsize, n.i = 0;
+	assert(t.tree->bsize <= TRIE_BRANCH);
+	status = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
+	bit.b0 = bit.b;
+	printf("tree "), print_tree(f, t.t);
+	sample = (status & LINK) ? trie_link_key(f, t.tree, 0) : t.tree->leaves[0].data;
+	while(n.b0 < n.b1) {
+		branch = t.tree->branches + n.b0;
+		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
+			if(TRIESTR_DIFF(key, sample, bit.b)) goto insert;
+		left = branch->left + 1;
+		if(!TRIESTR_TEST(key, bit.b)) {
+			if(!status) branch->left = left;
+			n.b1 = n.b0++ + left;
+		} else {
+			n.b0 += left, n.i += left;
+			sample = (status & LINK)
+				? trie_link_key(f, t.tree, n.i) : t.tree->leaves[n.i].data;
+		}
+		bit.b++, bit.b0 = bit.b1;
+	}
+	assert(n.b0 == n.b1 && n.i <= t.tree->bsize);
+	if(status & LINK) { t.t = t.tree->leaves[n.i].link; goto descend; }
+	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++;
+
+insert:
+	assert(n.i <= t.tree->bsize);
+	if(status) assert(0);
+	/* Left or right leaf. */
+	printf("add %s differs in bit %lu: ", key, (unsigned long)bit.b), print_tree(f, t.t);
+	/* Insert leaf right or left. */
+	if(TRIESTR_TEST(key, bit.b)) n.i += (left = n.b1 - n.b0) + 1; else left = 0;
+	leaf = t.tree->leaves + n.i;
+	printf("leaf[%u] memmove(%u, %u, %u) ", t.tree->bsize+1, n.i+1, n.i, t.tree->bsize + 1 -n.i), print_tree(f, 0);
+	memmove(leaf + 1, leaf, sizeof *leaf * (t.tree->bsize + 1 - n.i));
+	leaf->data = key;
+	branch = t.tree->branches + n.b0; /* fixme: waste of a good cycle. */
+	printf("branch[%u] memmove(%u, %u, %u) ", t.tree->bsize, n.b0+1, n.b0, t.tree->bsize - n.b0), print_tree(f, 0);
+	if(n.b0 != n.b1) { /* Split skip value with the existing branch. */
+		assert(bit.b0 <= bit.b && bit.b + !n.b0 <= bit.b0 + branch->skip);
+		printf("branch skip %u -> ", branch->skip);
+		branch->skip -= bit.b - bit.b0 + !n.b0;
+		printf("%u\n", branch->skip);
+	}
+	memmove(branch + 1, branch, sizeof *branch * (t.tree->bsize - n.b0));
+	branch->left = left;
+	assert(bit.b >= bit.b0 + !!n.b0);
+	branch->skip = bit.b - bit.b0 - !!n.b0;
+	t.tree->bsize++;
+	return 1;
+}
+
+
+
 
 struct trie_descent {
 	size_t t; /* Tree index; in/out. */
@@ -257,17 +338,6 @@ full:
 	return 1;
 }
 
-/** Use this when calculating the left key of a link-tree.
- @order \O(\log_{TRIE_ORDER} `size`) */
-static const char *trie_left_link_key(struct trie *const t, struct tree *tree,
-	const unsigned i) {
-	size_t link = tree->leaves[i].link;
-	assert(t->forest.data <= tree && t->forest.data + t->links > tree
-		&& i <= tree->bsize && (size_t)(tree - t->forest.data) != link);
-	while(link < t->links) link = t->forest.data[link].leaves[0].link;
-	return t->forest.data[link].leaves[0].data;
-}
-
 /** Add `key` to `t`. Must not be the same as any key of `t`; _ie_ it does not
  check for the end of the string. @return Success.
  @order \O(`key.length` OR \log `size`)? @throws[realloc, ERANGE] */
@@ -294,36 +364,28 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 	if(!t->forest.size) return assert(!t->links),
 		(tree = tree_array_new(&t->forest)) && (tree->bsize = 0,
 		tree->leaves[0].data = key, 1);
-
-	/* Start at the beginning and top. */
-	bit.b = 0, n.t = 0;
+	bit.b = 0, n.t = 0; /* Start at the beginning and top. */
 descend:
 	n.b0 = 0, n.b1 = (tree = t->forest.data + n.t)->bsize, n.i = 0;
 	is_link = n.t < t->links;
 	bit.b0 = bit.b;
 	printf("tree "), print_tree(t, n.t);
-	n.key = is_link ? trie_left_link_key(t, tree, 0) : tree->leaves[0].data;
+	n.key = is_link ? trie_link_key(t, tree, 0) : tree->leaves[0].data;
 
 	/* Split the tree if necessary. */
 	if(!is_link && tree->bsize >= TRIE_BRANCH) {
 		struct trie_descent d;
 		assert(tree->bsize == TRIE_BRANCH);
-		/* Descend just the root. */
-		/*for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
-			if(TRIESTR_DIFF(key, n.key, bit.b)) goto insert;*/
-		/*...here!!! need to go up to the root's skip value _first_, and then
-		 if it splits, we need to a insert new tree with 1 node into the linked
-		 list instead of splitting it. */
+		/* Look for the tree being split before the root. */
+		branch = tree->branches + 0;
+		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
+			if(TRIESTR_DIFF(key, n.key, bit.b)) { assert(0); goto link_insert; }
 		if((d.t = n.t)) d.prev.t = n.prev.t, d.prev.i = n.prev.i; /* Copy. */
 		if(!trie_split_data(t, &d)) return 0; /* Invalidates. */
 		n.t = d.t; /* Copy this back over. */
+		/* ...and... */
 		trie_graph(t, "graph/split.gv");
-		/*....*/
-		/* go though the values of skip, if early, update, and ... no, that's
-		 not it. branch has been added.
-		 
-		 We need to add the value in `trie_split_data` because it's before the
-		 split, it messes up and re-arrages. */
+		
 		goto descend;
 	}
 
@@ -339,7 +401,7 @@ descend:
 		} else {
 			n.b0 += left, n.i += left;
 			n.key = is_link
-				? trie_left_link_key(t, tree, n.i) : tree->leaves[n.i].data;
+				? trie_link_key(t, tree, n.i) : tree->leaves[n.i].data;
 		}
 		bit.b++, bit.b0 = bit.b1;
 	}
@@ -388,9 +450,18 @@ link_insert:
 /** @return If `key` is already in `t`, returns false, otherwise success.
  @throws[realloc, ERANGE] */
 static int trie_add(struct trie *const t, const char *const key)
-	{ return trie_get(t, key) ? 0 : trie_add_unique(t, key); }
+	{ return trie_get(t, key) ? 0 : /*trie_*/add_unique(t, key); }
 
 
+
+/** @return Whether `a` and `b` are equal up to the minimum. Used in
+ <fn:trie_prefix>. */
+/*static int trie_is_prefix(const char *a, const char *b) {
+	for( ; ; a++, b++) {
+		if(*a == '\0') return 1;
+		if(*a != *b) return *b == '\0';
+	}
+}*/
 
 static void print_tree(const struct trie *const t, const size_t tr) {
 	const struct tree *const tree = t->forest.data + tr;
