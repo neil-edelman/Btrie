@@ -5,19 +5,17 @@
 
  Tries are isomorphic to <Morrison, 1968 PATRICiA>. For speed, instead of
  being packed in an array, they are broken down into a linked-forest, as
- <Bayer, McCreight, 1972 Large (B-Trees)>, but uses the improved lexicon of
- <Knuth, 1998 Art 3>.
+ <Bayer, McCreight, 1972 Large (B-Trees)>, but defines the order as the maximum
+ branching factor, as <Knuth, 1998 Art 3>.
 
- A group of nodes, who's maximum is set by the order, in B-Tree parlance, is
- again a node. To resolve this conflicting terminology,
-
- * Every path through the trie-forest has the same number of trees.
- * These are non-empty complete binary trees;
-   `branches = (leaves \in [1, order]) - 1`. As is the trie itself, (with the
-   extension of empty); the discrepancy is made up in link-leaves.
- * In B-Tree parlance, leaf-nodes are now data-trees.
- * The middle of nodes (implicit root of bst) is now the root of a tree.
- * Trees can have [1, order] leaves by necessity; it cannot do a rotation.
+ In B-Tree parlance, a group of contiguous data, (implicitly nodes,) is a node.
+ We explicitly refer to these data as nodes, thus, a B-Trie is a forest of
+ _trees_. Leaves, which contain keys, and branches are called nodes. These are
+ all non-empty complete binary trees; `branches = (leaves \in [1, order]) - 1`.
+ The forest, as a whole, is a complete binary tree except the links to
+ different trees, having `\sum_{trees} branches = \sum_{trees} leaves - trees`.
+ However, a B-Trie is a variable-length encoding, so every path through the
+ forest doesn't have to have the same number of trees.
 
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code.
@@ -102,17 +100,16 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
 #define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
 #define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
-/* Setting this to 2 gets an isometry of a Red-Black Trie, as it were. */
-#define TRIE_MAX_LEFT 1 /* `[1, max(tree.left)]` set by data type (255.) */
-#define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* (Improbable) worst-case, all left. */
-#define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / data. */
+#define TRIE_MAX_LEFT 1 /* All-left worst-case, `[0, max(tree.left=255)]`. */
+#define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* Maximum branches. */
+#define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
 
 /** Fixed-maximum-size trees in the trie-forest. A PATRICiA trie encodes the
  length of the bits in `skip`, so instead of going with in-order branches, it
  is natural to go with pre-order. These are semi-implicit in that `right` is
- all the remaining branches after `left`: don't have enough data to go up. */
+ all the remaining branches after `left`; don't have enough data to go up. */
 struct tree {
-	unsigned char bsize;
+	unsigned char bsize; /* +1 is the rank */
 	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
 	union leaf { const char *data; size_t bigskip; size_t link; }
 		leaves[TRIE_ORDER];
@@ -140,15 +137,15 @@ static void trie_clear(struct trie *const t)
 
 /** @return Only looks at the index for an item that possibly matches `key` or
  null if `key` is definitely not in `t`. @order \O(`key.length`) */
-static const char *trie_match(const struct trie *const t, const char *key) {
-	size_t bit, tr;
+static const char *trie_match(const struct trie *const f, const char *key) {
+	size_t bit, t;
 	struct { size_t key, trie; } byte;
-	assert(t && key);
-	if(!t->forest.size) return 0; /* Empty. */
-	for(byte.key = 0, bit = 0, tr = 0; ; ) { /* Descend tree in forest. */
-		struct tree *const tree = t->forest.data + tr;
+	assert(f && key);
+	if(!f->forest.size) return 0; /* Empty. */
+	for(byte.key = 0, bit = 0, t = 0; ; ) { /* Descend tree in forest. */
+		struct tree *const tree = f->forest.data + t;
 		struct { size_t b0, b1, i; } n; /* Branch range and leaf accumulator. */
-		assert(tr < t->forest.size);
+		assert(t < f->forest.size);
 		n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
 		while(n.b0 < n.b1) { /* Branches. */
 			struct branch *const branch = tree->branches + n.b0;
@@ -159,7 +156,7 @@ static const char *trie_match(const struct trie *const t, const char *key) {
 			bit++;
 		}
 		assert(n.b0 == n.b1); /* Leaf. */
-		if(tr < t->links) tr = tree->leaves[n.i].link;
+		if(t < f->links) t = tree->leaves[n.i].link;
 		else return tree->leaves[n.i].data;
 	}
 }
