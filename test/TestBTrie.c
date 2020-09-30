@@ -39,7 +39,7 @@ static void test_basic(void) {
 		sprintf(fn, "graph/word-%lu.gv", (unsigned long)i + 1);
 		r = trie_graph(&t, fn), assert(r);
 		s = trie_get(&t, w), assert(s == w);
-		printf("\"%s\": %s\n", w, s);
+		/*printf("\"%s\": %s\n", w, s);*/
 		for(j = 0; j < i; j++)
 			w = words[j], s = trie_get(&t, w), assert(s == w);
 	}
