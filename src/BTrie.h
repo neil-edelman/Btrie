@@ -210,12 +210,11 @@ static const char *trie_link_key(struct trie *const t, struct tree *tree,
 
 static int add_unique(struct trie *const f, const char *const key) {
 	struct { size_t b, b0, b1; } bit; /* `b \in [b0, b1]` inside branch. */
-	struct { struct tree *tree; size_t t; size_t bit; const char *key;
-		unsigned b0, b1, i; /* Node branch range, leaf accumulator. */
+	struct { struct tree *tree; size_t t, prev_t; size_t bit; const char *key;
+		unsigned b0, b1, i, prev_i; /* Node branch range, leaf accumulator. */
 		enum { VACANT_DATA, LINK, FULL, LINK_FULL } leaf;
 		enum { TREE_LEFT, RIGHT, TOP, TOP_RIGHT } in; } t; /* `t \in f`. */
 	struct { size_t t, b; int is; } vacant; /* Backtrack to vacancy. */
-	size_t *prev_link = 0;
 	const char *sample; /* String from trie to compare with `key`. */
 	struct branch *branch;
 	union leaf *leaf;
@@ -230,7 +229,7 @@ static int add_unique(struct trie *const f, const char *const key) {
 		t.tree->leaves[0].data = key, 1);
 
 	/* Start at the beginning of the key and root of the forest. */
-	vacant.is = 0, prev_link = 0, bit.b = 0, t.t = 0;
+	vacant.is = 0, t.prev_t = 0, t.prev_i = 0, bit.b = 0, t.t = 0;
 	do {
 		t.bit = bit.b; /* Cache bit value for backtracking. */
 tree: /* Descend tree. */
@@ -262,7 +261,8 @@ tree: /* Descend tree. */
 		}
 		assert(t.b0 == t.b1 && t.i <= t.tree->bsize);
 		/* If link-tree, `t.t` is updated and we continue down another tree. */
-	} while((t.leaf & LINK) && (t.t = t.tree->leaves[prev_i = t.i].link, 1));
+	} while((t.leaf & LINK) && (t.prev_t = t.t,
+		t.t = t.tree->leaves[t.prev_i = t.i].link, 1));
 	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++; /* Got to the leaves. */
 insert:
 	assert(t.i <= t.tree->bsize);
@@ -313,11 +313,12 @@ insert:
 				/* Any key in `f->links`, (since it's non-empty, 0 will do.) */
 				size_t *const first_data_link
 					= trie_ref(f, f->forest.data[f->links].leaves[0].data);
-				const size_t first_data = *first_data_link;
+				/**** update prev_link from being invalidated ******/
+				const size_t first_data = *first_data_link, prev_link = f->forest.data[t.prev_t].leaves[t.prev_i];
 				printf("sample: %s\n", f->forest.data[f->links].leaves[0].data);
 				/* This is very trusting of the user. */
-				assert(first_data_link && *first_data_link && *prev_link);
-				printf("OHOH!!!! %lu <-> %lu, links %lu\n", *first_data_link, *prev_link, f->links);
+				assert(first_data_link && *first_data_link);
+				printf("OHOH!!!! %lu <-> %lu, links %lu\n", *first_data_link, *prev_link);
 				printf("top: "), print_tree(f, t.t);
 				printf("links: "), print_tree(f, f->links);
 				memcpy(top, f->forest.data + f->links, sizeof *top);
