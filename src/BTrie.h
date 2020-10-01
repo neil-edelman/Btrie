@@ -171,7 +171,7 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 /** Gets link-reference in the link-tree just before `key` in `f`. */
 static size_t *trie_ref(const struct trie *const f, const char *const key) {
 	struct tree* tree;
-	struct { size_t b0, b1, i; } n;
+	struct { unsigned b0, b1, i; } n;
 	size_t bit = 0, t = 0;
 	assert(f && key);
 	if(!f->links) return 0;
@@ -188,6 +188,7 @@ static size_t *trie_ref(const struct trie *const f, const char *const key) {
 		}
 		assert(n.b0 == n.b1);
 	} while((t = tree->leaves[n.i].link) < f->links);
+	printf("ref: link i %u\n", n.i);
 	printf("ref: tree %lu -> tree %lu\n", tree - f->forest.data, tree->leaves[n.i].link);
 	return &tree->leaves[n.i].link;
 }
@@ -261,9 +262,7 @@ tree: /* Descend tree. */
 		}
 		assert(t.b0 == t.b1 && t.i <= t.tree->bsize);
 		/* If link-tree, `t.t` is updated and we continue down another tree. */
-	} while((t.leaf & LINK)
-		&& (prev_link = &t.tree->leaves[t.i].link,
-		t.t = t.tree->leaves[t.i].link, 1));
+	} while((t.leaf & LINK) && (t.t = t.tree->leaves[prev_i = t.i].link, 1));
 	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++; /* Got to the leaves. */
 insert:
 	assert(t.i <= t.tree->bsize);
@@ -327,7 +326,10 @@ insert:
 				printf("top: "), print_tree(f, t.t);
 				printf("links: "), print_tree(f, f->links);
 				*first_data_link = t.t;
+				trie_graph(f, "graph/split1.5.gv");
+				printf("prev_link %lu -> %lu\n", *prev_link, first_data);
 				*prev_link = first_data;
+				trie_graph(f, "graph/split1.6.gv");
 			}
 			trie_graph(f, "graph/split2.gv");
 			top->bsize = 1;
