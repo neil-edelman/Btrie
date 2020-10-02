@@ -241,7 +241,7 @@ tree: /* Descend tree. */
 		t.leaf = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
 		bit.b0 = bit.b;
 		/* May use for (another) backtracking later. */
-		if(t.leaf == LINK) vacant.t = t.t, vacant.b = bit.b;
+		if(t.leaf == LINK) vacant.t = t.t, vacant.b = bit.b, vacant.is = 1, printf(" -> vacancy at tree %lu.\n", t.t);
 		sample = (t.leaf & LINK)
 			? trie_link_key(f, t.tree, t.i) : t.tree->leaves[t.i].data;
 		while(t.b0 < t.b1) { /* Branches. */
