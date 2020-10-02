@@ -710,18 +710,34 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 			t, lf, tree->leaves[lf].data);
 		fprintf(fp, "\t}\n");
 	} else { /* Link-tree. */
+		unsigned char bmp[(TRIE_ORDER >> 3) + !!(TRIE_ORDER & 7)];
+		memset(bmp, 0, (TRIE_ORDER >> 3) + !!(TRIE_ORDER & 7));
 		fprintf(fp, "\t}\n");
 		for(lf = 0; lf <= tree->bsize; lf++) {
 			unsigned parent = trie_leaf_parent(tree, lf);
 			unsigned l = (unsigned)tree->leaves[lf].link;
 			struct tree *link = f->forest.data + l;
+			unsigned is_right = TRIESTR_TEST(bmp, parent);
+			TRIESTR_SET(bmp, parent);
 			fprintf(fp,
 				"\t%s%u_%u -> %s%u_%u [ltail=cluster_tree%u, "
-				"lhead=cluster_tree%u, color = firebrick];\n",
+				"lhead=cluster_tree%u, color = firebrick, style = %s];\n",
 				tree->bsize ? "branch" : "leaf", t, parent,
 				link->bsize ? "branch" : "leaf", l, 0,
-				t, l);
+				t, l, is_right ? "solid" : "dashed");
 		}
+	}
+	fprintf(fp, "\n");
+}
+
+static void tree_subgraph(const struct trie *const f, const size_t t,
+	unsigned char *visited, FILE *const fp) {
+	assert(f && t < f->forest.size && fp && t <= (unsigned)-1);
+	tree_graph(f, (unsigned)t, fp), TRIESTR_SET(visited, t);
+	if(t < f->links) {
+		unsigned lf;
+		for(lf = 0; lf <= f->forest.data[t].bsize; lf++)
+			tree_subgraph(f, f->forest.data[t].leaves[lf].link, visited, fp);
 	}
 }
 
@@ -745,10 +761,15 @@ static int trie_graph(const struct trie *const f, const char *const fn) {
 		/* An additional constraint not present in code: if this is not met,
 		 GraphViz probably can't handle it anyway. */
 		assert(f->forest.size <= (unsigned)-1);
-		for(t = 0; t < f->forest.size; t++) tree_graph(f, t, fp);
+		tree_subgraph(f, t, visited, fp);
+		fprintf(fp, "\n"
+			"\t// the following are not reachable from the root\n"
+			"\tnode [fillcolor = red]\n"
+			"\n");
+		for(t = 0; t < f->forest.size; t++)
+			if(!TRIESTR_TEST(visited, t)) tree_graph(f, t, fp);
 	}
-	fprintf(fp, "\tnode [colour=red, style=filled];\n"
-		"}\n");
+	fprintf(fp, "}\n");
 	success = 1;
 finally:
 	if(fp) fclose(fp);
