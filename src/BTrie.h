@@ -630,29 +630,11 @@ static unsigned trie_left_leaf(const struct tree *const tree,
 	return i;
 }
 
-/** @return Finds the branch parent given `i`, leaf index. Has to have two
- branches. */
-static unsigned trie_leaf_parent(const struct tree *const tree,
-	const unsigned leaf) {
-	unsigned b0 = 0, b1 = tree->bsize, bpar = 0, i = 0, lt;
-	const struct branch *branch;
-	assert(tree && leaf <= b1 && b1);
-	while(b0 < b1) {
-		bpar = b0;
-		lt = (branch = tree->branches + b0)->left + 1;
-		if(leaf < b0 + lt) b1 = b0++ + lt;
-		else b0 += lt, i += lt;
-	}
-	assert(b0 == b1 && b0 <= tree->bsize && i <= tree->bsize);
-	return bpar;
-}
-
 static void tree_graph(const struct trie *const f, const unsigned t,
 	FILE *const fp) {
 	struct tree *const tree = f->forest.data + t;
 	unsigned br, lf;
 	assert(f && t < f->forest.size && fp);
-	/*fprintf(fp, "\tlabel = \"trie forest\";\n");*/
 	fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
 		"\t\tstyle = filled; fillcolor = lightgray; label = \"tree %lu\";\n",
 		(unsigned long)t, (unsigned long)t);
@@ -681,21 +663,30 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 		}
 	}
 	if(t >= f->links) { /* Data tree. */
-		fprintf(fp, "\t\t// data-leaves\n");
+		fprintf(fp, "\t\t// leaves\n");
 		for(lf = 0; lf <= tree->bsize; lf++) fprintf(fp,
 			"\t\tleaf%u_%u [label = \"%s\"];\n",
 			t, lf, tree->leaves[lf].data);
 		fprintf(fp, "\t}\n");
 	} else { /* Link-tree. */
-		unsigned char bmp[(TRIE_ORDER >> 3) + !!(TRIE_ORDER & 7)];
-		memset(bmp, 0, (TRIE_ORDER >> 3) + !!(TRIE_ORDER & 7));
 		fprintf(fp, "\t}\n");
 		for(lf = 0; lf <= tree->bsize; lf++) {
-			unsigned parent = trie_leaf_parent(tree, lf);
+			unsigned parent = 0;
 			unsigned l = (unsigned)tree->leaves[lf].link;
 			struct tree *link = f->forest.data + l;
-			unsigned is_right = TRIESTR_TEST(bmp, parent);
-			TRIESTR_SET(bmp, parent);
+			unsigned is_right = 0;
+			{
+				unsigned b0 = 0, b1 = tree->bsize, i = 0, lt;
+				const struct branch *branch;
+				assert(tree && lf <= b1 && b1);
+				while(b0 < b1) {
+					parent = b0;
+					lt = (branch = tree->branches + b0)->left + 1;
+					if(lf < b0 + lt) b1 = b0++ + lt, is_right = 0;
+					else b0 += lt, i += lt, is_right = 1;
+				}
+				assert(b0 == b1 && b0 <= tree->bsize && i <= lf);
+			}
 			fprintf(fp,
 				"\t%s%u_%u -> %s%u_%u [ltail=cluster_tree%u, "
 				"lhead=cluster_tree%u, color = firebrick, style = %s];\n",
