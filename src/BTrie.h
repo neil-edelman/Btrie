@@ -288,11 +288,11 @@ insert:
 		/* The new branch wants to go on top of the root. */
 		if(t.in & TOP) {
 			top = f->forest.data + t.t;
-			assert(t.i == top->bsize + 1u);
+			assert(t.i == 0 || t.i == top->bsize + 1u);
 			printf("insert top right; branches %u\n", top->bsize);
 			assert(0);
 			/*memcpy();*/
-		} else { /* Split; root goes up. */
+		} else { /* Split; root goes up (FIXME: it is just in it's own node). */
 			size_t l, r;
 			top = f->forest.data + t.t;
 			printf("before node b[%u..%u] i%u, ", t.b0, t.b1, t.i), print_tree(f, t.t);
@@ -483,53 +483,7 @@ static int trie_add_unique(struct trie *const t, const char *const key) {
 	assert(t && key);
 	printf("ADD: %s\n", key);
 
-	/* Empty special case. */
-	if(!t->forest.size) return assert(!t->links),
-		(tree = tree_array_new(&t->forest)) && (tree->bsize = 0,
-		tree->leaves[0].data = key, 1);
-	bit.b = 0, n.t = 0; /* Start at the beginning and top. */
-descend:
-	n.b0 = 0, n.b1 = (tree = t->forest.data + n.t)->bsize, n.i = 0;
-	is_link = n.t < t->links;
-	bit.b0 = bit.b;
-	printf("tree "), print_tree(t, n.t);
-	n.key = is_link ? trie_link_key(t, tree, 0) : tree->leaves[0].data;
-
-	/* Split the tree if necessary. */
-	if(!is_link && tree->bsize >= TRIE_BRANCH) {
-		struct trie_descent d;
-		assert(tree->bsize == TRIE_BRANCH);
-		/* Look for the tree being split before the root. */
-		branch = tree->branches + 0;
-		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
-			if(TRIESTR_DIFF(key, n.key, bit.b)) { assert(0); goto link_insert; }
-		if((d.t = n.t)) d.prev.t = n.prev.t, d.prev.i = n.prev.i; /* Copy. */
-		if(!trie_split_data(t, &d)) return 0; /* Invalidates. */
-		n.t = d.t; /* Copy this back over. */
-		/* ...and... */
-		trie_graph(t, "graph/split.gv");
-		
-		goto descend;
-	}
-
-	/* Descend the tree. */
-	while(n.b0 < n.b1) {
-		branch = tree->branches + n.b0;
-		for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
-			if(TRIESTR_DIFF(key, n.key, bit.b)) goto insert;
-		left = branch->left + 1;
-		if(!TRIESTR_TEST(key, bit.b)) {
-			if(!is_link) branch->left = left;
-			n.b1 = n.b0++ + left;
-		} else {
-			n.b0 += left, n.i += left;
-			n.key = is_link
-				? trie_link_key(t, tree, n.i) : tree->leaves[n.i].data;
-		}
-		bit.b++, bit.b0 = bit.b1;
-	}
-	assert(n.b0 == n.b1);
-
+...
 	if(is_link) {
 		n.prev.t = n.t, n.prev.i = n.i, n.t = tree->leaves[n.i].link;
 		assert(n.t < t->forest.size && n.prev.t != n.t);
@@ -753,7 +707,8 @@ static int trie_graph(const struct trie *const f, const char *const fn) {
 	fprintf(fp, "digraph {\n"
 		"\trankdir=TB;\n"
 		"\tnode [shape = box, style = filled, fillcolor = lightsteelblue];\n"
-		"\t// forest size %lu.\n", (unsigned long)f->forest.size);
+		"\t// forest size %lu.\n"
+		"\n", (unsigned long)f->forest.size);
 	if(!f->forest.size) {
 		fprintf(fp, "\tlabel = \"empty\";\n");
 	} else {
@@ -762,9 +717,8 @@ static int trie_graph(const struct trie *const f, const char *const fn) {
 		 GraphViz probably can't handle it anyway. */
 		assert(f->forest.size <= (unsigned)-1);
 		tree_subgraph(f, t, visited, fp);
-		fprintf(fp, "\n"
-			"\t// the following are not reachable from the root\n"
-			"\tnode [fillcolor = red]\n"
+		fprintf(fp, "\t// the following are not reachable from the root\n"
+			"\tnode [fillcolor = red];\n"
 			"\n");
 		for(t = 0; t < f->forest.size; t++)
 			if(!TRIESTR_TEST(visited, t)) tree_graph(f, t, fp);
