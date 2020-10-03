@@ -670,29 +670,37 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 		fprintf(fp, "\t}\n");
 	} else { /* Link-tree. */
 		fprintf(fp, "\t}\n");
+		printf("-graph: "), print_tree(f, t);
 		for(lf = 0; lf <= tree->bsize; lf++) {
 			unsigned parent = 0;
 			unsigned l = (unsigned)tree->leaves[lf].link;
 			struct tree *link = f->forest.data + l;
-			unsigned is_right = 0;
+			unsigned is_left = 0;
+			printf("-leaf %u: ", lf);
 			{
-				unsigned b0 = 0, b1 = tree->bsize, i = 0, lt;
+				struct { unsigned b0, b1, i; } n;
+				unsigned lt;
 				const struct branch *branch;
-				assert(tree && lf <= b1 && b1);
-				while(b0 < b1) {
-					parent = b0;
-					lt = (branch = tree->branches + b0)->left + 1;
-					if(lf < b0 + lt) b1 = b0++ + lt, is_right = 0;
-					else b0 += lt, i += lt, is_right = 1;
+				n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
+				printf("(%u-%u,%u) ", n.b0, n.b1, n.i);
+				assert(tree && lf <= n.b1);
+				while(n.b0 < n.b1) {
+					parent = n.b0;
+					lt = (branch = tree->branches + n.b0)->left + 1;
+					if(lf < n.i/*b0*/ + lt) n.b1 = n.b0++ + lt, is_left = 1;
+					else n.b0 += lt, n.i += lt, is_left = 0;
 				}
-				assert(b0 == b1 && b0 <= tree->bsize && i <= lf);
+				assert(n.b0 == n.b1 && n.b0 <= tree->bsize);
+				/*is_left = (lf < n.b0 + tree->branches[n.b0].left + 1);
+				is_left = (n.i < lf);*/
 			}
+			printf("got\n");
 			fprintf(fp,
 				"\t%s%u_%u -> %s%u_%u [ltail=cluster_tree%u, "
 				"lhead=cluster_tree%u, color = firebrick, style = %s];\n",
 				tree->bsize ? "branch" : "leaf", t, parent,
 				link->bsize ? "branch" : "leaf", l, 0,
-				t, l, is_right ? "solid" : "dashed");
+				t, l, is_left ? "dashed" : "solid");
 		}
 	}
 	fprintf(fp, "\n");
