@@ -222,7 +222,7 @@ static int add_unique(struct trie *const f, const char *const key) {
 	enum { NO, YES } is_allocated = NO; /* Debug; kill with `-DNDEBUG -O`. */
 
 	assert(f && key);
-	printf("*** ADD %s ***\n", key);
+	printf("*** ADD \"%s\" ***\n", key);
 	/* Empty special case is exception. */
 	if(!f->forest.size) return assert(!f->links),
 		(t.tree = tree_array_new(&f->forest)) && (t.tree->bsize = 0,
