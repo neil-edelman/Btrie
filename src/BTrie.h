@@ -121,6 +121,7 @@ struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { 0, ARRAY_IDLE }
 #endif /* !zero --> */
+struct entry { struct branch branch; union leaf leaf; };
 
 
 /** New idle `f`. */
@@ -168,8 +169,23 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 	return leaf && !strcmp(leaf, key) ? leaf : 0;
 }
 
-/** Gets link-reference in the link-tree just before `key` in `f`. */
-static size_t *trie_ref(const struct trie *const f, const char *const key) {
+
+
+/* Debug. */
+static void print_tree(const struct trie *const t, const size_t tr);
+static int trie_graph(const struct trie *const t, const char *const fn);
+static void print_trie(const struct trie *const t);
+
+/** @return Sample of left key of leaf index `i` of link-tree `tree` in `f`. */
+static const char *link_key(struct trie *const f, size_t link) {
+	assert(f && link < f->forest.size);
+	while(link < f->links) link = f->forest.data[link].leaves[0].link;
+	return f->forest.data[link].leaves[0].data;
+}
+
+/** @return Leaf link-reference in the link-tree just above the data-tree that
+ holds `key` in `f`. */
+static size_t *key_link(const struct trie *const f, const char *const key) {
 	struct tree* tree;
 	struct { unsigned b0, b1, i; } n;
 	size_t bit = 0, t = 0;
@@ -188,24 +204,78 @@ static size_t *trie_ref(const struct trie *const f, const char *const key) {
 		}
 		assert(n.b0 == n.b1);
 	} while((t = tree->leaves[n.i].link) < f->links);
-	printf("ref: link i %u\n", n.i);
-	printf("ref: tree %lu -> tree %lu\n", tree - f->forest.data, tree->leaves[n.i].link);
 	return &tree->leaves[n.i].link;
 }
 
-static void print_tree(const struct trie *const t, const size_t tr);
-static int trie_graph(const struct trie *const t, const char *const fn);
-static void print_trie(const struct trie *const t);
+/* Swap data-tree `t_ref` in `f`, who's leaf index in the parent is `pi` in
+ `pt`, to be the first data-tree, index `f.forest[f.links]`. */
+static struct tree *make_first_data(struct trie *const f, size_t *const t_ref,
+	const size_t pt, const size_t pi) {
+	struct tree *const tree = f->forest.data + *t_ref;
+	assert(f && t_ref && f->links < f->forest.size && *t_ref >= f->links);
+	if(*t_ref > f->links) {
+		/* Link on the link-tree that goes to `f.links`, (any key in
+		 `f.links`, 0 will do,) and `t`. */
+		size_t *const l_ref
+			= key_link(f, f->forest.data[f->links].leaves[0].data),
+			*const p_ref
+			= &f->forest.data[pt].leaves[pi].link;
+		/* This is very trusting of the user to not modify strings. */
+		assert(l_ref && *l_ref == f->links && *p_ref == *t_ref &&
+			pt < f->links && pi <= f->forest.data[pt].bsize);
+		memcpy(tree, f->forest.data + f->links, sizeof *tree);
+		*l_ref = *t_ref;
+		*t_ref = *p_ref = f->links;
+	}
+	return f->forest.data + f->links;
+}
 
-/** Use this when calculating the left key of a link-tree.
- @order \O(\log_{TRIE_ORDER} `size`) */
-static const char *trie_link_key(struct trie *const t, struct tree *tree,
-	const unsigned i) {
-	size_t link = tree->leaves[i].link;
-	assert(t->forest.data <= tree && t->forest.data + t->links > tree
-		&& i <= tree->bsize && (size_t)(tree - t->forest.data) != link);
-	while(link < t->links) link = t->forest.data[link].leaves[0].link;
-	return t->forest.data[link].leaves[0].data;
+/** `t` must be a full-data tree, which will be split at the root and placed in
+ a new tree, which must already have been reserved from `f`.
+ @return The root, which must be placed in a link-tree above. */
+static struct entry split(struct trie *const f, const size_t t) {
+	struct tree *const left = f->forest.data + t,
+		*const right = tree_array_new(&f->forest);
+	struct branch *branch;
+	unsigned lt = left->branches[0].left, rt = left->bsize - lt - 1;
+	struct entry root;
+	assert(f && t >= f->links && t < f->forest.size && right);
+	right->bsize = rt;
+	memcpy(right->branches, left->branches + lt + 1, sizeof root.branch * rt);
+	memcpy(right->leaves, left->leaves + lt + 1, sizeof root.leaf * (rt + 1));
+	left->bsize = (branch = left->branches + 0)->left;
+	memmove(branch, branch + 1, sizeof *branch * left->bsize);
+	root.branch.left = 0;
+	root.branch.skip = branch->skip;
+	root.leaf.link = right - f->forest.data;
+	return root;
+}
+
+static void vacant_add(struct trie *const f, const size_t t,
+	const unsigned i, const struct entry e) {
+	struct tree *const tree = f->forest.data + t;
+	struct branch *branch;
+	union leaf *leaf;
+	struct { unsigned b0, b1, i; } n;
+	unsigned lt;
+	assert(f && t < f->forest.size && tree->bsize < TRIE_BRANCH
+		&& i < tree->bsize + 1u + 1u && e.branch.left == 0);
+	n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
+	while(n.b0 < n.b1) {
+		lt = (branch = tree->branches + n.b0)->left + 1;
+		if(i < n.i + lt) n.b1 = n.b0++ + (branch->left = lt);
+		else n.b0 += lt, n.i += lt;
+	}
+	assert(n.b0 == n.b1 && n.b0 <= tree->bsize
+		&& i == n.i && n.i <= tree->bsize);
+	branch = tree->branches + n.b0;
+	memmove(branch + 1, branch, sizeof *branch * (tree->bsize - n.b0));
+	branch->left = 0;
+	branch->skip = e.branch.skip;
+	leaf = tree->leaves + i;
+	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize - i - 1));
+	memcpy(leaf, &e.leaf, sizeof *leaf);
+	tree->bsize++;
 }
 
 static int trie_add_unique(struct trie *const f, const char *const key) {
@@ -241,7 +311,7 @@ tree: /* Descend tree. */
 		t.leaves = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
 		bit.b0 = bit.b;
 		sample = (t.leaves & LINK)
-			? trie_link_key(f, t.tree, t.i) : t.tree->leaves[t.i].data;
+			? link_key(f, t.tree->leaves[t.i].link) : t.tree->leaves[t.i].data;
 		while(t.b0 < t.b1) { /* Branches. */
 			branch = t.tree->branches + t.b0;
 			for(bit.b1 = bit.b + branch->skip; bit.b < bit.b1; bit.b++)
@@ -252,8 +322,8 @@ tree: /* Descend tree. */
 				t.b1 = t.b0++ + lt;
 			} else {
 				t.b0 += lt, t.i += lt;
-				sample = (t.leaves & LINK)
-					? trie_link_key(f, t.tree, t.i) : t.tree->leaves[t.i].data;
+				sample = (t.leaves & LINK) ? link_key(f,
+					t.tree->leaves[t.i].link) : t.tree->leaves[t.i].data;
 			}
 			bit.b++, bit.b0 = bit.b1;
 		}
@@ -287,7 +357,8 @@ insert:
 				/* Remeber it could be a link-tree. */
 				/* P->tree ... P,branch->{key|tree} */
 				struct tree *const parent = f->forest.data + p.t;
-				printf("parent branches %u\n", tree->bsize);
+				printf("parent branches %u, tree branches %u\n",
+					parent->bsize, tree->bsize);
 				assert(0);
 			} else {
 				/* It could be root; swap? */
@@ -301,7 +372,7 @@ insert:
 				*const left = f->forest.data + t.t,
 				*const right = tree_array_new(&f->forest);
 			assert(right);
-			lt = left->branches[0].left;
+			lt = left->branches[0].left; /* `left` is the whole for now. */
 			right->bsize = (rt = left->bsize - lt - 1);
 			memcpy(right->branches, left->branches + lt + 1,
 				sizeof *branch * rt), memcpy(right->leaves,
@@ -340,21 +411,7 @@ insert:
 			right->bsize = (rt = top->bsize - lt - 1);
 			memcpy(right->branches, top->branches + lt + 1, sizeof *branch*rt);
 			memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt +1));
-			trie_graph(f, "graph/split-full1.gv");
-			if(f->links < t.t) { /* Swap to maintain contiguity. */
-				/* Link on the link-tree that goes to `f.links`, (any key in
-				 `f.links`, 0 will do,) and to `t.tree`. */
-				size_t *const l_ref
-					= trie_ref(f, f->forest.data[f->links].leaves[0].data),
-					*const p_ref
-					= &f->forest.data[p.t].leaves[p.i].link;
-				/* This is very trusting of the user: don't modify strings. */
-				assert(t.t && l_ref && *l_ref == f->links && *p_ref == t.t);
-				memcpy(top, f->forest.data + f->links, sizeof *top);
-				top = f->forest.data + f->links;
-				*l_ref = t.t;
-				t.t = *p_ref = f->links;
-			}
+			top = make_first_data(f, &t.t, p.t, p.i);
 			top->bsize = 1;
 			branch->left = 0;
 			top->leaves[0].link = l;
