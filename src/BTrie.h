@@ -121,7 +121,7 @@ struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { 0, ARRAY_IDLE }
 #endif /* !zero --> */
-struct entry { struct branch branch; union leaf leaf; };
+struct entry { struct branch branch; union leaf rleaf; };
 
 
 /** New idle `f`. */
@@ -242,12 +242,13 @@ static struct entry split(struct trie *const f, const size_t t) {
 	assert(f && t >= f->links && t < f->forest.size && right);
 	right->bsize = rt;
 	memcpy(right->branches, left->branches + lt + 1, sizeof root.branch * rt);
-	memcpy(right->leaves, left->leaves + lt + 1, sizeof root.leaf * (rt + 1));
+	memcpy(right->leaves, left->leaves + lt + 1, sizeof root.rleaf * (rt + 1));
 	left->bsize = (branch = left->branches + 0)->left;
 	memmove(branch, branch + 1, sizeof *branch * left->bsize);
 	root.branch.left = 0;
 	root.branch.skip = branch->skip;
-	root.leaf.link = right - f->forest.data;
+	root.rleaf.link = right - f->forest.data;
+	trie_graph(f, "graph/split.gv");
 	return root;
 }
 
@@ -258,8 +259,8 @@ static void vacant_add(struct trie *const f, const size_t t,
 	union leaf *leaf;
 	struct { unsigned b0, b1, i; } n;
 	unsigned lt;
-	assert(f && t < f->forest.size && tree->bsize < TRIE_BRANCH
-		&& i < tree->bsize + 1u + 1u && e.branch.left == 0);
+	assert(f && t < f->forest.size && tree->bsize < TRIE_BRANCH);
+	assert(i < tree->bsize + 1u + 1u && e.branch.left == 0);
 	n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
 	while(n.b0 < n.b1) {
 		lt = (branch = tree->branches + n.b0)->left + 1;
@@ -272,10 +273,11 @@ static void vacant_add(struct trie *const f, const size_t t,
 	memmove(branch + 1, branch, sizeof *branch * (tree->bsize - n.b0));
 	branch->left = 0;
 	branch->skip = e.branch.skip;
-	leaf = tree->leaves + i;
-	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize - i - 1));
-	memcpy(leaf, &e.leaf, sizeof *leaf);
+	leaf = tree->leaves + i + 1;
+	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize - i));
+	memcpy(leaf, &e.rleaf, sizeof *leaf); /* Will copy data or link. */
 	tree->bsize++;
+	trie_graph(f, "graph/add.gv");
 }
 
 static int trie_add_unique(struct trie *const f, const char *const key) {
@@ -345,7 +347,7 @@ insert:
 		int is_vacant_parent = t.t && f->forest.data[p.t].bsize < TRIE_BRANCH;
 		assert(!is_allocated && (is_allocated = 1)); /* Loop very Bad. */
 		printf("parent %s -> reseving %u.\n",
-			is_vacant_parent ? "vancant" : "full", 1 + !is_vacant_parent);
+			is_vacant_parent ? "vacant" : "full", 1 + !is_vacant_parent);
 		/* Fail-fast; single-point-of-failure before modification. */
 		if(!tree_array_reserve(&f->forest,
 			f->forest.size + 1 + !is_vacant_parent)) return 0;
@@ -367,6 +369,9 @@ insert:
 			assert(0);
 			/*memcpy();*/
 		} else if(is_vacant_parent) { /* Split; root goes to the parent-tree. */
+#if 1
+			vacant_add(f, p.t, p.i, split(f, t.t));
+#else
 			struct { unsigned b0, b1, i; } pn;
 			struct tree *const top = f->forest.data + p.t,
 				*const left = f->forest.data + t.t,
@@ -396,6 +401,7 @@ insert:
 			/* Now `left` doesn't have the root and right side. */
 			left->bsize = (branch = left->branches + 0)->left;
 			memmove(branch, branch + 1, sizeof *branch * left->bsize);
+#endif
 			t.t = p.t, bit.b = p.bit;
 			if(!trie_graph(f, "graph/split-parent.gv")) perror("output");
 		} else { /* Split: root goes to it's own node. */
@@ -411,9 +417,8 @@ insert:
 			right->bsize = (rt = top->bsize - lt - 1);
 			memcpy(right->branches, top->branches + lt + 1, sizeof *branch*rt);
 			memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt +1));
-			top = make_first_data(f, &t.t, p.t, p.i);
-			top->bsize = 1;
-			branch->left = 0;
+			(top = make_first_data(f, &t.t, p.t, p.i))->bsize = 1;
+			top->branches[0].left = 0;
 			top->leaves[0].link = l;
 			top->leaves[1].link = r;
 			f->links++;
