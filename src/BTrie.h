@@ -208,25 +208,24 @@ static size_t *key_link(const struct trie *const f, const char *const key) {
 	return &tree->leaves[n.i].link;
 }
 
-/* Swap data-tree `t_ref` in `f`, who's leaf index in the parent is `pi` in
- `pt`, to be the first data-tree, index `f.forest[f.links]`. */
+/* Swap data-tree with index `tree_ref` in `f`, who's leaf index in the parent
+ is also `parent_ref`, (if existing,) to be the first data-tree, index
+ `f.forest[f.links]`. */
 static struct tree *swap_with_first_data(struct trie *const f,
-	size_t *const t_ref, const size_t pt, const size_t pi) {
-	struct tree *const tree = f->forest.data + *t_ref;
-	assert(f && t_ref && f->links < f->forest.size && *t_ref >= f->links);
-	if(*t_ref > f->links) {
+	size_t *const tree_ref, size_t *const parent_ref) {
+	struct tree *const tree = f->forest.data + *tree_ref;
+	assert(f && tree_ref && parent_ref && f->links < f->forest.size &&
+		*tree_ref >= f->links);
+	if(*tree_ref > f->links) {
 		/* Link on the link-tree that goes to `f.links`, (any key in
 		 `f.links`, 0 will do,) and `t`. */
-		size_t *const l_ref
-			= key_link(f, f->forest.data[f->links].leaves[0].data),
-			*const p_ref = &f->forest.data[pt].leaves[pi].link;
-		/* fixme: just pass `p_ref` instead of `pt` and `pi`. */
+		size_t *const zero_ref
+			= key_link(f, f->forest.data[f->links].leaves[0].data);
 		/* This is very trusting of the user to not modify strings. */
-		assert(l_ref && *l_ref == f->links && *p_ref == *t_ref &&
-			pt < f->links && pi <= f->forest.data[pt].bsize);
+		assert(zero_ref && *zero_ref == f->links && *parent_ref == *tree_ref);
 		memcpy(tree, f->forest.data + f->links, sizeof *tree);
-		*l_ref = *t_ref;
-		*t_ref = *p_ref = f->links;
+		*zero_ref = *tree_ref;
+		*tree_ref = *parent_ref = f->links;
 	}
 	return f->forest.data + f->links;
 }
@@ -234,7 +233,7 @@ static struct tree *swap_with_first_data(struct trie *const f,
 /** `t` must be a full-data tree, which will be split at the root and placed in
  a new tree, which must already have been reserved from `f`.
  @return The root, which must be placed in a link-tree above. */
-static struct link split(struct trie *const f, const size_t t) {
+static struct link split_root(struct trie *const f, const size_t t) {
 	struct tree *const left = f->forest.data + t,
 		*const right = tree_array_new(&f->forest);
 	struct branch *branch;
@@ -256,11 +255,11 @@ static struct link split(struct trie *const f, const size_t t) {
 #if 0
 /** Adds `e` to a new link-tree, which must be reserved, below `i` in `t` in
  `f`. Must be full. */
-static void add_to_new_link(struct trie *const f, size_t *const t_ref,
+static void add_to_new_linktree(struct trie *const f, size_t *const t_ref,
 	const unsigned i, const struct link e) {
-	struct tree *top = swap_with_first_data(f, );
+	struct tree *top = swap_with_first_data(f, t_ref, , i);
 
-	struct tree *top = f->forest.data + t,
+/*	struct tree *top = f->forest.data + t,
 	*const left = tree_array_new(&f->forest),
 	*const right = tree_array_new(&f->forest);
 	const size_t l = left - f->forest.data, r = right - f->forest.data;
@@ -275,7 +274,7 @@ static void add_to_new_link(struct trie *const f, size_t *const t_ref,
 	(top = swap_with_first_data(f, &t.t, p.t, p.i))->bsize = 1;
 	top->branches[0].left = 0;
 	top->leaves[0].link = l;
-	top->leaves[1].link = r;
+	top->leaves[1].link = r;*/
 	f->links++;
 	print_trie(f);
 	if(!trie_graph(f, "graph/split-full.gv")) perror("output");
@@ -284,7 +283,7 @@ static void add_to_new_link(struct trie *const f, size_t *const t_ref,
 #endif
 
 /** Adds `e` to position `i` in `t` in `f`. Must not be full. */
-static void add_to_vacant_link(struct trie *const f, const size_t t,
+static void add_to_vacant_linktree(struct trie *const f, const size_t t,
 	const unsigned i, const struct link e) {
 	struct tree *const tree = f->forest.data + t;
 	struct branch *branch;
@@ -307,8 +306,8 @@ static void add_to_vacant_link(struct trie *const f, const size_t t,
 	branch->skip = e.branch.skip;
 	leaf = tree->leaves + i + 1;
 	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize - i));
-	assert(e.lr[0].link == leaf[-1].link);
-	memcpy(leaf, &e.lr[1].link, sizeof *leaf);
+	assert(e.lr[0].link == leaf[-1].link); /* Brings down the left. */
+	leaf->link = e.lr[1].link;
 	tree->bsize++;
 }
 
@@ -401,12 +400,12 @@ insert:
 			assert(0);
 			/*memcpy();*/
 		} else if(is_vacant_parent) {
-			add_to_vacant_link(f, p.t, p.i, split(f, t.t));
+			add_to_vacant_linktree(f, p.t, p.i, split_root(f, t.t));
 			t.t = p.t, bit.b = p.bit;
 			if(!trie_graph(f, "graph/split-parent.gv")) perror("output");
 		} else { /* Split: root goes to it's own node. */
 #if 0
-			add_to_new_link(f, p.t, p.i, split(f, t.t));
+			add_to_new_linktree(f, p.t, p.i, split_root(f, t.t));
 			/* and... */
 #else
 			struct tree *top = f->forest.data + t.t,
@@ -421,7 +420,8 @@ insert:
 			right->bsize = (rt = top->bsize - lt - 1);
 			memcpy(right->branches, top->branches + lt + 1, sizeof *branch*rt);
 			memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt +1));
-			(top = swap_with_first_data(f, &t.t, p.t, p.i))->bsize = 1;
+			(top = swap_with_first_data(f, &t.t,
+				&f->forest.data[p.t].leaves[p.i].link))->bsize = 1;
 			top->branches[0].left = 0;
 			top->leaves[0].link = l;
 			top->leaves[1].link = r;
