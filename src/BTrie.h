@@ -299,7 +299,7 @@ static void add_to_vacant_linktree(struct trie *const f, const size_t t,
 	struct { unsigned b0, b1, i; } n;
 	unsigned lt;
 	assert(f && t < f->forest.size && tree->bsize < TRIE_BRANCH);
-	assert(i < tree->bsize + 1u + 1u && e.branch.left == 0);
+	assert(i < tree->bsize + 1u && e.branch.left == 0);
 	n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
 	while(n.b0 < n.b1) { /* Expand tree. */
 		lt = (branch = tree->branches + n.b0)->left + 1;
@@ -414,6 +414,7 @@ insert:
 		} else { /* Split: root goes to it's own node. */
 #if 0
 			add_to_new_linktree(f, p.t, p.i, split_root(f, t.t));
+			swap_with_first_data(f, &t.t, &f->forest.data[p.t].leaves[p.i].link);
 			/* and... */
 #else
 			struct tree *top = f->forest.data + t.t,
