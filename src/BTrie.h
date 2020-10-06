@@ -259,7 +259,11 @@ static void add_to_new_linktree(struct trie *const f, size_t *const t_ref,
 	const unsigned i, const struct link e) {
 	struct tree *top = swap_with_first_data(f, t_ref, , i);
 
-/*	struct tree *top = f->forest.data + t,
+#if 0
+	add_to_new_linktree(f, p.t, p.i, split_root(f, t.t));
+	/* and... */
+#else
+	struct tree *top = f->forest.data + t.t,
 	*const left = tree_array_new(&f->forest),
 	*const right = tree_array_new(&f->forest);
 	const size_t l = left - f->forest.data, r = right - f->forest.data;
@@ -271,10 +275,14 @@ static void add_to_new_linktree(struct trie *const f, size_t *const t_ref,
 	right->bsize = (rt = top->bsize - lt - 1);
 	memcpy(right->branches, top->branches + lt + 1, sizeof *branch*rt);
 	memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt +1));
-	(top = swap_with_first_data(f, &t.t, p.t, p.i))->bsize = 1;
+	(top = swap_with_first_data(f, &t.t,
+		&f->forest.data[p.t].leaves[p.i].link))->bsize = 1;
 	top->branches[0].left = 0;
 	top->leaves[0].link = l;
-	top->leaves[1].link = r;*/
+	top->leaves[1].link = r;
+	f->links++;
+#endif
+
 	f->links++;
 	print_trie(f);
 	if(!trie_graph(f, "graph/split-full.gv")) perror("output");
