@@ -109,7 +109,7 @@ static type *name##_array_new(struct name##_array *const a) { \
  is natural to go with pre-order. These are semi-implicit in that `right` is
  all the remaining branches after `left`; don't have enough data to go up. */
 struct tree {
-	unsigned char bsize; /* +1 is the rank */
+	unsigned char bsize; /* +1 is the rank. */
 	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
 	union leaf { const char *data; size_t bigskip; size_t link; }
 		leaves[TRIE_ORDER];
@@ -177,7 +177,8 @@ static void print_tree(const struct trie *const t, const size_t tr);
 static int trie_graph(const struct trie *const t, const char *const fn);
 static void print_trie(const struct trie *const t);
 
-/** @return Sample of left key of leaf index `i` of link-tree `tree` in `f`. */
+/** @return Sample the left key of tree `link` in `f`.
+ @order \O(log_{ORDER} `trees`) */
 static const char *link_key(struct trie *const f, size_t link) {
 	assert(f && link < f->forest.size);
 	while(link < f->links) link = f->forest.data[link].leaves[0].link;
@@ -185,7 +186,7 @@ static const char *link_key(struct trie *const f, size_t link) {
 }
 
 /** @return Leaf link-reference in the link-tree just above the data-tree that
- holds `key` in `f`. If there is none, returns null. */
+ holds `key` in `f`. If there is none, returns null. @order \O(`key.length`) */
 static size_t *key_link(const struct trie *const f, const char *const key) {
 	struct tree* tree;
 	struct { unsigned b0, b1, i; } n;
@@ -210,7 +211,7 @@ static size_t *key_link(const struct trie *const f, const char *const key) {
 
 /* Swap data-tree with index `tree_ref` in `f`, who's leaf index in the parent
  is also `parent_ref`, (if existing,) to be the first data-tree, index
- `f.forest[f.links]`. */
+ `f.forest[f.links]`. FIXME: Take this out. */
 static struct tree *swap_with_first_data(struct trie *const f,
 	size_t *const tree_ref, size_t *const parent_ref) {
 	struct tree *const tree = f->forest.data + *tree_ref;
@@ -239,6 +240,7 @@ static struct tree *new_link_tree(struct trie *const f) {
 		size_t *const datatree0_ref
 			= key_link(f, f->forest.data[f->links].leaves[0].data);
 		assert(datatree0_ref && *datatree0_ref == f->links);
+		printf("datatree0_ref");
 		*datatree0_ref = newtree - f->forest.data;
 	}
 	memcpy(newtree, datatree0, sizeof *datatree0);
@@ -409,7 +411,7 @@ insert:
 			t.t = p.t, bit.b = p.bit;
 			if(!trie_graph(f, "graph/split-parent.gv")) perror("output");
 		} else { /* Split: root goes to it's own node. */
-#if 0
+#if 1
 			/* FIXMEEEE */
 			add_to_new_linktree(f, split_root(f, t.t));
 			/* and... */
