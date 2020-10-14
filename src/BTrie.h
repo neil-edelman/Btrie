@@ -231,91 +231,106 @@ static struct tree *swap_with_first_data(struct trie *const f,
 	return f->forest.data + f->links;
 }
 
-/** Must already be a tree reserved from `f`. Alters the order. */
-static struct tree *new_link_tree(struct trie *const f) {
-	struct tree *const newtree = tree_array_new(&f->forest),
-		*const datatree0 = f->forest.data + f->links;
-	assert(f->links < f->forest.size && newtree);
-	if(f->links) { /* Adjust the indices of the parent. */
-		size_t *const datatree0_ref
-			= key_link(f, f->forest.data[f->links].leaves[0].data);
-		assert(datatree0_ref && *datatree0_ref == f->links);
-		printf("datatree0_ref");
-		*datatree0_ref = newtree - f->forest.data;
+/** Must already be a tree reserved from `f`. In `link`, it compensates for
+ altered order. */
+static struct tree *new_link_tree(struct trie *const f,
+	struct link *const link) {
+	struct tree *const end = tree_array_new(&f->forest),
+		*const first = f->forest.data + f->links;
+	assert(f && link && f->links < f->forest.size && end);
+	if(f->links) { /* Adjust the indices of the link-trie reference above. */
+		size_t *const first_ref = key_link(f, first->leaves[0].data);
+		assert(first_ref && *first_ref == f->links);
+		printf("new_link: first <-> end, %lu <-> %lu\n",
+			f->links, end - f->forest.data);
+		*first_ref = end - f->forest.data;
 	}
-	memcpy(newtree, datatree0, sizeof *datatree0);
+	memcpy(end, first, sizeof *first);
+	if(link->lr[0].link == f->links) {
+		printf("new_link: adjusting root link left %lu->%lu.\n",
+			f->links, end - f->forest.data);
+		link->lr[0].link = end - f->forest.data;
+	}
+	printf("new_link: now %lu is a link tree, moved to tree %lu\n",
+		f->links, end - f->forest.data);
+	trie_graph(f, "graph/new.gv");
 	f->links++;
-	return datatree0; /* It is a new link-tree now. */
+	return first;
 }
 
 /** `t` must be a full-data tree, which will be split at the root and placed in
  a new tree, which must already have been reserved from `f`.
- @return The root, which must be placed in a link-tree above. */
-static struct link split_root(struct trie *const f, const size_t t) {
+ @param[link] Information about the root of the tree is placed in here; it must
+ be placed in a link-tree above. */
+static void split(struct trie *const f, const size_t t,
+	struct link *const link) {
 	struct tree *const left = f->forest.data + t,
 		*const right = tree_array_new(&f->forest);
 	struct branch *branch;
 	unsigned lt = left->branches[0].left, rt = left->bsize - lt - 1;
-	struct link root;
-	assert(f && t >= f->links && t < f->forest.size && right && left->bsize);
+	printf("split: data-tree %lu into tree %lu and tree %lu.\n",
+		t, t, right - f->forest.data);
+	assert(f && t >= f->links && t < f->forest.size && link
+		&& right && left->bsize);
 	right->bsize = rt;
-	memcpy(right->branches, left->branches + lt + 1, sizeof root.branch * rt);
-	memcpy(right->leaves, left->leaves + lt + 1, sizeof *root.lr * (rt + 1));
-	left->bsize = (branch = left->branches + 0)->left;
-	root.branch.left = 0;
-	root.branch.skip = branch->skip;
-	root.lr[0].link = t;
-	root.lr[1].link = right - f->forest.data;
-	memmove(branch, branch + 1, sizeof *branch * left->bsize);
-	printf("split (%u,%u)[%lu,%lu]\n", root.branch.left, root.branch.skip, root.lr[0].link, root.lr[1].link);
-	return root;
+	memcpy(right->branches, left->branches + lt + 1, sizeof link->branch * rt);
+	memcpy(right->leaves, left->leaves + lt + 1, sizeof *link->lr * (rt + 1));
+	link->branch.left = 0;
+	link->branch.skip = (branch = left->branches + 0)->skip;
+	link->lr[0].link = t;
+	link->lr[1].link = right - f->forest.data;
+	memmove(branch, branch + 1, sizeof *branch * (left->bsize = lt));
 }
 
 /** Adds `e` to a new link-tree, which must be reserved, below `i` in `t` in
  `f`. Must be full. */
-static void add_to_new_linktree(struct trie *const f, struct link root) {
-	struct tree *const top = new_link_tree(f);
-	struct branch *branch = top->branches + 0;
-	union leaf *leaves = top->leaves + 0;
-	assert(top && !root.branch.left && f->links
-		&& root.lr[0].link >= f->links - 1 && f->links < f->forest.size);
-	printf("new (%u,%u)[%lu,%lu]\n", root.branch.left, root.branch.skip, root.lr[0].link, root.lr[1].link);
-	/* Update link from <fn:new_link_tree>. */
-	if(root.lr[0].link == f->links - 1) root.lr[0].link = f->forest.size - 1;
-	top->bsize = 1;
+static void add_to_new_linktree(struct trie *const f, const int is_parent,
+	const size_t t, const unsigned i, struct link *const link) {
+	struct tree *const tree = new_link_tree(f, link),
+		*const parent = is_parent ? f->forest.data + t : 0;
+	struct branch *branch = tree->branches + 0;
+	union leaf *leaves = tree->leaves + 0;
+	assert(f && tree && link && !link->branch.left && f->links
+		&& link->lr[0].link >= f->links - 1 && f->links < f->forest.size
+		&& (!is_parent || (t < f->forest.size - 1 && i <= parent->bsize)));
+	printf("add_to_new_linktree: is_parent %d, tree %lu, index %u\n", is_parent, t, i);
+	tree->bsize = 1;
 	branch->left = 0;
-	branch->skip = root.branch.skip;
-	leaves[0].link = root.lr[0].link;
-	leaves[1].link = root.lr[1].link;
+	branch->skip = link->branch.skip;
+	leaves[0].link = link->lr[0].link;
+	leaves[1].link = link->lr[1].link;
+	/* if is_parent move the parent to the root,
+	 but first find out why it's moving at all. (`f->links` update) */
+	if(is_parent) parent->leaves[i].link = tree - f->forest.data;
 }
 
 /** Adds `e` to position `i` in `t` in `f`. Must not be full. */
 static void add_to_vacant_linktree(struct trie *const f, const size_t t,
-	const unsigned i, const struct link e) {
-	struct tree *const tree = f->forest.data + t;
+	const unsigned i, const struct link *const link) {
+	struct tree *const parent = f->forest.data + t;
 	struct branch *branch;
 	union leaf *leaf;
 	struct { unsigned b0, b1, i; } n;
 	unsigned lt;
-	assert(f && t < f->forest.size && tree->bsize < TRIE_BRANCH);
-	assert(i <= tree->bsize && e.branch.left == 0);
-	n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
+	assert(f && t < f->forest.size && parent->bsize < TRIE_BRANCH);
+	assert(i <= parent->bsize && link->branch.left == 0);
+	n.b0 = 0, n.b1 = parent->bsize, n.i = 0;
 	while(n.b0 < n.b1) { /* Expand tree. */
-		lt = (branch = tree->branches + n.b0)->left + 1;
+		lt = (branch = parent->branches + n.b0)->left + 1;
 		if(i < n.i + lt) n.b1 = n.b0++ + (branch->left = lt);
 		else n.b0 += lt, n.i += lt;
 	}
-	assert(n.b0 == n.b1 && n.b0 <= tree->bsize
-		&& i == n.i && n.i <= tree->bsize);
-	branch = tree->branches + n.b0;
-	memmove(branch + 1, branch, sizeof *branch * (tree->bsize - n.b0));
+	assert(n.b0 == n.b1 && n.b0 <= parent->bsize
+		&& i == n.i && n.i <= parent->bsize);
+	branch = parent->branches + n.b0;
+	memmove(branch + 1, branch, sizeof *branch * (parent->bsize - n.b0));
 	branch->left = 0;
-	branch->skip = e.branch.skip;
-	leaf = tree->leaves + i + 1;
-	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize - i));
-	assert(e.lr[0].link == leaf[-1].link); /* Brings down the left. */
-	leaf->link = e.lr[1].link;
-	tree->bsize++;
+	branch->skip = link->branch.skip;
+	leaf = parent->leaves + i + 1;
+	memmove(leaf + 1, leaf, sizeof *leaf * (parent->bsize - i));
+	assert(link->lr[0].link == leaf[-1].link); /* Brings down the left. */
+	leaf->link = link->lr[1].link;
+	parent->bsize++;
 }
 
 static int trie_add_unique(struct trie *const f, const char *const key) {
@@ -407,13 +422,19 @@ insert:
 			assert(0);
 			/*memcpy();*/
 		} else if(is_vacant_parent) {
-			add_to_vacant_linktree(f, p.t, p.i, split_root(f, t.t));
+			struct link root;
+			split(f, t.t, &root);
+			if(!trie_graph(f, "graph/split-vacant1.gv")) perror("output");
+			add_to_vacant_linktree(f, p.t, p.i, &root);
+			if(!trie_graph(f, "graph/split-vacant2.gv")) perror("output");
 			t.t = p.t, bit.b = p.bit;
-			if(!trie_graph(f, "graph/split-parent.gv")) perror("output");
 		} else { /* Split: root goes to it's own node. */
 #if 1
-			/* FIXMEEEE */
-			add_to_new_linktree(f, split_root(f, t.t));
+			struct link root;
+			split(f, t.t, &root);
+			if(!trie_graph(f, "graph/split-full1.gv")) perror("output");
+			add_to_new_linktree(f, !!t.t, p.t, p.i, &root);
+			if(!trie_graph(f, "graph/split-full2.gv")) perror("output");
 			/* and... */
 			t.t = f->links - 1, bit.b = t.bit;
 #else
@@ -437,7 +458,6 @@ insert:
 			f->links++;
 			bit.b = t.bit;
 #endif
-			if(!trie_graph(f, "graph/split-full.gv")) perror("output");
 		}
 		goto tree; /* Backtrack. It's possible to not do this, but explodes. */
 	}
