@@ -288,18 +288,16 @@ static void add_to_new_linktree(struct trie *const f, const int is_parent,
 		&& link->lr[0].link >= f->links - 1 && f->links < f->forest.size
 		&& (!is_parent || (t < f->forest.size - 1 && i <= parent->bsize)));
 	printf("add_to_new_linktree: is_parent %d, tree %lu, index %u\n", is_parent, t, i);
-	if(link->lr[0].link == f->links - 1) {
-		printf("new_link: adjusting root link left %lu->%lu.\n",
-			   f->links, f->forest.size - 1);
-		link->lr[0].link = f->forest.size - 1;
-	}	
 	tree->bsize = 1;
 	branch->left = 0;
 	branch->skip = link->branch.skip;
+	if(link->lr[0].link == f->links - 1) { /* Moved from <fn:new_link_tree>. */
+		printf("add_to_new_linktree: adjusting root link left %lu->%lu.\n",
+			f->links, f->forest.size - 1);
+		link->lr[0].link = f->forest.size - 1;
+	} /* Whattt?? How are we assigning it twice? */
 	leaves[0].link = link->lr[0].link;
 	leaves[1].link = link->lr[1].link;
-	/* if is_parent move the parent to the root,
-	 but first find out why it's moving at all. (`f->links` update) */
 	if(is_parent) parent->leaves[i].link = tree - f->forest.data;
 }
 
@@ -434,9 +432,10 @@ insert:
 			if(!trie_graph(f, "graph/split-full1.gv")) perror("output");
 			add_to_new_linktree(f, !!t.t, p.t, p.i, &root);
 			if(!trie_graph(f, "graph/split-full2.gv")) perror("output");
-			/* and... */
+			/* and...? */
 			t.t = f->links - 1, bit.b = t.bit;
 #else
+			/**** Take out all this. ****/
 			struct tree *top = f->forest.data + t.t,
 				*const left = tree_array_new(&f->forest),
 				*const right = tree_array_new(&f->forest);
