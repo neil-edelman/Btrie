@@ -233,11 +233,10 @@ static struct tree *swap_with_first_data(struct trie *const f,
 
 /** Must already be a tree reserved from `f`. In `link`, it compensates for
  altered order. */
-static struct tree *new_link_tree(struct trie *const f,
-	struct link *const link) {
+static struct tree *new_link_tree(struct trie *const f) {
 	struct tree *const end = tree_array_new(&f->forest),
 		*const first = f->forest.data + f->links;
-	assert(f && link && f->links < f->forest.size && end);
+	assert(f && f->links < f->forest.size && end);
 	if(f->links) { /* Adjust the indices of the link-trie reference above. */
 		size_t *const first_ref = key_link(f, first->leaves[0].data);
 		assert(first_ref && *first_ref == f->links);
@@ -246,11 +245,6 @@ static struct tree *new_link_tree(struct trie *const f,
 		*first_ref = end - f->forest.data;
 	}
 	memcpy(end, first, sizeof *first);
-	if(link->lr[0].link == f->links) {
-		printf("new_link: adjusting root link left %lu->%lu.\n",
-			f->links, end - f->forest.data);
-		link->lr[0].link = end - f->forest.data;
-	}
 	printf("new_link: now %lu is a link tree, moved to tree %lu\n",
 		f->links, end - f->forest.data);
 	trie_graph(f, "graph/new.gv");
@@ -286,7 +280,7 @@ static void split(struct trie *const f, const size_t t,
  `f`. Must be full. */
 static void add_to_new_linktree(struct trie *const f, const int is_parent,
 	const size_t t, const unsigned i, struct link *const link) {
-	struct tree *const tree = new_link_tree(f, link),
+	struct tree *const tree = new_link_tree(f),
 		*const parent = is_parent ? f->forest.data + t : 0;
 	struct branch *branch = tree->branches + 0;
 	union leaf *leaves = tree->leaves + 0;
@@ -294,6 +288,11 @@ static void add_to_new_linktree(struct trie *const f, const int is_parent,
 		&& link->lr[0].link >= f->links - 1 && f->links < f->forest.size
 		&& (!is_parent || (t < f->forest.size - 1 && i <= parent->bsize)));
 	printf("add_to_new_linktree: is_parent %d, tree %lu, index %u\n", is_parent, t, i);
+	if(link->lr[0].link == f->links - 1) {
+		printf("new_link: adjusting root link left %lu->%lu.\n",
+			   f->links, f->forest.size - 1);
+		link->lr[0].link = f->forest.size - 1;
+	}	
 	tree->bsize = 1;
 	branch->left = 0;
 	branch->skip = link->branch.skip;
