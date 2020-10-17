@@ -1,30 +1,31 @@
 /** @license 2020 Neil Edelman, distributed under the terms of the
  [MIT License](https://opensource.org/licenses/MIT).
 
- @subtitle Trie
+ @subtitle Prefix Tree
 
- Tries are isomorphic to <Morrison, 1968 PATRICiA>. For speed, instead of
- being packed in an array, they are broken down into a linked-forest, as
- <Bayer, McCreight, 1972 Large (B-Trees)>, but defines the order as the maximum
- branching factor, as <Knuth, 1998 Art 3>.
+ ![Example of trie.](../web/trie.png)
 
- In B-Tree parlance, a group of contiguous data, (implicitly nodes,) is a node.
- We explicitly refer to these data as nodes, thus, a B-Trie is a forest of
- _trees_. Leaves, which contain keys, and branches are called nodes. These are
- all non-empty complete binary trees; `branches = (leaves \in [1, order]) - 1`.
- The forest, as a whole, is a complete binary tree except the links to
- different trees, having `\sum_{trees} branches = \sum_{trees} leaves - trees`.
- However, a B-Trie is a variable-length encoding, so every path through the
- forest doesn't have to have the same number of trees.
+ An <tag:<N>trie> is a prefix, or digital tree, and is isomorphic to
+ <Morrison, 1968 PATRICiA>: an index of pointers-to-`N` in a (semi)-compact
+ [binary radix trie](https://en.wikipedia.org/wiki/Radix_tree). While in a
+ trie, the key is a necessarily read-only, null-terminated, (including
+ [modified UTF-8](https://en.wikipedia.org/wiki/UTF-8#Modified_UTF-8),) that
+ uniquely identifies the data, (which could be just the key itself or an
+ associative map.)
+
+ Internally, it is a dynamic array of trees in a linked-forest, as
+ <Bayer, McCreight, 1972 Large (B-Trees)>. This defines the order as the
+ maximum branching factor, as <Knuth, 1998 Art 3>.
 
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code.
 
  @param[TRIE_NAME, TRIE_TYPE]
- <typedef:<PN>type> that satisfies `C` naming conventions when mangled and an
- optional returnable type that is declared, (it is used by reference only
- except if `TRIE_TEST`.) `<PN>` is private, whose names are prefixed in a
- manner to avoid collisions; any should be re-defined prior to use elsewhere.
+ A name that satisfies `C` naming conventions when mangled and an optional
+ returnable type <typedef:<PN>type> that is declared, (it is used by reference
+ only except if `TRIE_TEST`.) If `TRIE_TYPE` is not defined, defaults to
+ `const char`. `<PN>` is private, whose names are prefixed in a manner to avoid
+ collisions; any should be re-defined prior to use elsewhere.
 
  @param[TRIE_KEY]
  A function that satisfies <typedef:<PN>key_fn>. Must be defined if and only if
@@ -115,7 +116,16 @@ struct tree {
 		leaves[TRIE_ORDER];
 };
 MIN_ARRAY(tree, struct tree)
-/** Trie-forest. Link-trees are on top by design choice,
+/** Trie-forest. We explicitly refer to a key and any data associated therewith
+ as nodes. In B-Tree parlance, a group of contiguous data, made up of what we
+ call nodes, is itself a node. To resolve this conflict, a "B-Trie" is a forest
+ of trees. Leaves, which contain keys, and branches are called nodes. These are
+ all non-empty complete binary trees; `branches = (leaves \in [1, order]) - 1`.
+ The forest, as a whole, is a complete binary tree except the links to
+ different trees, having `\sum_{trees} branches = \sum_{trees} leaves - trees`.
+ However, the B-Tree rules are different and so the balance is different. A
+ B-Trie is a variable-length encoding, so every path through the forest doesn't
+ have to have the same number of trees. Link-trees are on top by design choice,
  `empty and !links or links < forest.size`. */
 struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
@@ -178,7 +188,7 @@ static int trie_graph(const struct trie *const t, const char *const fn);
 static void print_trie(const struct trie *const t);
 
 /** @return Sample the left key of tree `link` in `f`.
- @order \O(log_{ORDER} `trees`) */
+ @order \O(log_{ORDER} `forest.size`) */
 static const char *link_key(struct trie *const f, size_t link) {
 	assert(f && link < f->forest.size);
 	while(link < f->links) link = f->forest.data[link].leaves[0].link;
@@ -209,61 +219,35 @@ static size_t *key_link(const struct trie *const f, const char *const key) {
 	return &tree->leaves[n.i].link;
 }
 
-/* Swap data-tree with index `tree_ref` in `f`, who's leaf index in the parent
- is also `parent_ref`, (if existing,) to be the first data-tree, index
- `f.forest[f.links]`. FIXME: Take this out. */
-static struct tree *swap_with_first_data(struct trie *const f,
-	size_t *const tree_ref, size_t *const parent_ref) {
-	struct tree *const tree = f->forest.data + *tree_ref;
-	assert(f && tree_ref && parent_ref && f->links < f->forest.size &&
-		*tree_ref >= f->links);
-	if(*tree_ref > f->links) {
-		/* Link on the link-tree that goes to `f.links`, (any key in
-		 `f.links`, 0 will do,) and `t`. */
-		size_t *const zero_ref
-			= key_link(f, f->forest.data[f->links].leaves[0].data);
-		/* This is very trusting of the user to not modify strings. */
-		assert(zero_ref && *zero_ref == f->links && *parent_ref == *tree_ref);
-		memcpy(tree, f->forest.data + f->links, sizeof *tree);
-		*zero_ref = *tree_ref;
-		*tree_ref = *parent_ref = f->links;
-	}
-	return f->forest.data + f->links;
-}
-
-/** Must already be a tree reserved from `f`. In `link`, it compensates for
- altered order. */
+/** Must already be a tree reserved from `f`. Copies the first data-node of `f`
+ into the newly allocated tree at the end. Corrects the parent pointer to the
+ altered order if present.
+ @return The new link-tree, which is the old first data-tree.
+ @order \O(`length`) */
 static struct tree *new_link_tree(struct trie *const f) {
 	struct tree *const end = tree_array_new(&f->forest),
 		*const first = f->forest.data + f->links;
 	assert(f && f->links < f->forest.size && end);
-	if(f->links) { /* Adjust the indices of the link-trie reference above. */
+	if(f->links) { /* Adjust the indices of the link-tree reference above. */
 		size_t *const first_ref = key_link(f, first->leaves[0].data);
 		assert(first_ref && *first_ref == f->links);
-		printf("new_link: first <-> end, %lu <-> %lu\n",
-			f->links, end - f->forest.data);
 		*first_ref = end - f->forest.data;
 	}
 	memcpy(end, first, sizeof *first);
-	printf("new_link: now %lu is a link tree, moved to tree %lu\n",
-		f->links, end - f->forest.data);
-	trie_graph(f, "graph/new.gv");
 	f->links++;
 	return first;
 }
 
-/** `t` must be a full-data tree, which will be split at the root and placed in
- a new tree, which must already have been reserved from `f`.
- @param[link] Information about the root of the tree is placed in here; it must
- be placed in a link-tree above. */
+/** `t` must be a full-data tree; the left tree will be split at the root and
+ be placed in a new right-tree, which must already have been reserved from `f`.
+ @param[link] The root of the tree is placed in here; it must be placed as a
+ leaf in the link-tree above to maintain the integrity of the trie. */
 static void split(struct trie *const f, const size_t t,
 	struct link *const link) {
 	struct tree *const left = f->forest.data + t,
 		*const right = tree_array_new(&f->forest);
 	struct branch *branch;
 	unsigned lt = left->branches[0].left, rt = left->bsize - lt - 1;
-	printf("split: data-tree %lu into tree %lu and tree %lu.\n",
-		t, t, right - f->forest.data);
 	assert(f && t >= f->links && t < f->forest.size && link
 		&& right && left->bsize);
 	right->bsize = rt;
@@ -276,8 +260,8 @@ static void split(struct trie *const f, const size_t t,
 	memmove(branch, branch + 1, sizeof *branch * (left->bsize = lt));
 }
 
-/** Adds `e` to a new link-tree, which must be reserved, below `i` in `t` in
- `f`. Must be full. */
+/** Adds `link` to a new link-tree, which must be reserved, below `i` in tree
+ `t`, which must be full or `is_parent` false, in forest `f`. */
 static void add_to_new_linktree(struct trie *const f, const int is_parent,
 	const size_t t, const unsigned i, struct link *const link) {
 	struct tree *const tree = new_link_tree(f),
@@ -287,21 +271,17 @@ static void add_to_new_linktree(struct trie *const f, const int is_parent,
 	assert(f && tree && link && !link->branch.left && f->links
 		&& link->lr[0].link >= f->links - 1 && f->links < f->forest.size
 		&& (!is_parent || (t < f->forest.size - 1 && i <= parent->bsize)));
-	printf("add_to_new_linktree: is_parent %d, tree %lu, index %u\n", is_parent, t, i);
 	tree->bsize = 1;
 	branch->left = 0;
 	branch->skip = link->branch.skip;
-	if(link->lr[0].link == f->links - 1) { /* Moved from <fn:new_link_tree>. */
-		printf("add_to_new_linktree: adjusting root link left %lu->%lu.\n",
-			f->links, f->forest.size - 1);
-		link->lr[0].link = f->forest.size - 1;
-	} /* Whattt?? How are we assigning it twice? */
+	/* First data-tree that was moved in <fn:new_link_tree>. */
+	if(link->lr[0].link == f->links - 1) link->lr[0].link = f->forest.size - 1;
 	leaves[0].link = link->lr[0].link;
 	leaves[1].link = link->lr[1].link;
 	if(is_parent) parent->leaves[i].link = tree - f->forest.data;
 }
 
-/** Adds `e` to position `i` in `t` in `f`. Must not be full. */
+/** Adds `link` to position `i` in tree `t` in forest `f`. Must not be full. */
 static void add_to_vacant_linktree(struct trie *const f, const size_t t,
 	const unsigned i, const struct link *const link) {
 	struct tree *const parent = f->forest.data + t;
@@ -345,7 +325,7 @@ static int trie_add_unique(struct trie *const f, const char *const key) {
 
 	assert(f && key);
 	printf("*** ADD \"%s\" ***\n", key);
-	/* Empty special case is exception. */
+	/* Empty special case is an exception. */
 	if(!f->forest.size) return assert(!f->links),
 		(t.tree = tree_array_new(&f->forest)) && (t.tree->bsize = 0,
 		t.tree->leaves[0].data = key, 1);
@@ -393,7 +373,6 @@ insert:
 
 	/* Split and backtrack if the leaf status is `FULL` or `LINK`. */
 	if(t.leaves) {
-		unsigned rt;
 		int is_vacant_parent = t.t && f->forest.data[p.t].bsize < TRIE_BRANCH;
 		assert(!is_allocated && (is_allocated = 1)); /* Loop very Bad. */
 		printf("parent %s -> reseving %u.\n",
@@ -426,36 +405,13 @@ insert:
 			if(!trie_graph(f, "graph/split-vacant2.gv")) perror("output");
 			t.t = p.t, bit.b = p.bit;
 		} else { /* Split: root goes to it's own node. */
-#if 1
 			struct link root;
 			split(f, t.t, &root);
 			if(!trie_graph(f, "graph/split-full1.gv")) perror("output");
 			add_to_new_linktree(f, !!t.t, p.t, p.i, &root);
 			if(!trie_graph(f, "graph/split-full2.gv")) perror("output");
-			/* and...? */
+			/* fixme: are you sure? */
 			t.t = f->links - 1, bit.b = t.bit;
-#else
-			/**** Take out all this. ****/
-			struct tree *top = f->forest.data + t.t,
-				*const left = tree_array_new(&f->forest),
-				*const right = tree_array_new(&f->forest);
-			const size_t l = left - f->forest.data, r = right - f->forest.data;
-			assert(left && right);
-			left->bsize = (lt = (branch = top->branches + 0)->left);
-			assert(top->bsize > lt);
-			memcpy(left->branches, top->branches + 1, sizeof *branch * lt);
-			memcpy(left->leaves, top->leaves, sizeof *leaf * (lt + 1));
-			right->bsize = (rt = top->bsize - lt - 1);
-			memcpy(right->branches, top->branches + lt + 1, sizeof *branch*rt);
-			memcpy(right->leaves, top->leaves + lt + 1, sizeof *leaf * (rt +1));
-			(top = swap_with_first_data(f, &t.t,
-				&f->forest.data[p.t].leaves[p.i].link))->bsize = 1;
-			top->branches[0].left = 0;
-			top->leaves[0].link = l;
-			top->leaves[1].link = r;
-			f->links++;
-			bit.b = t.bit;
-#endif
 		}
 		goto tree; /* Backtrack. It's possible to not do this, but explodes. */
 	}
