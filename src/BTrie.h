@@ -391,12 +391,17 @@ insert:
 				printf("parent branches %u, tree branches %u\n",
 					parent->bsize, tree->bsize);
 				assert(0);
-			} else {
-				/* It could be root; swap? */
-				/* [P->]tree ... [P->]branch->{key|tree} */
+			} else { /* Split tree; half the tree is the new leaf. */
+				struct tree *const parent = new_link_tree(f),
+					*const sibling = tree_array_new(&f->forest);
+				assert((t.leaves & FULL) && parent && sibling);
+				sibling->bsize = 0;
+				sibling->leaves[0].data = key;
+				assert(0);
+				/* parent: tree, sibling or sibling, tree (careful) */
+				/* if(t.t) f->forest.data[p.t].leaves[p.i].link = parent */	
+				return 1;
 			}
-			assert(0);
-			/*memcpy();*/
 		} else if(is_vacant_parent) {
 			struct link root;
 			split(f, t.t, &root);
