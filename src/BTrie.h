@@ -123,10 +123,10 @@ MIN_ARRAY(tree, struct tree)
  all non-empty complete binary trees; `branches = (leaves \in [1, order]) - 1`.
  The forest, as a whole, is a complete binary tree except the links to
  different trees, having `\sum_{trees} branches = \sum_{trees} leaves - trees`.
- However, the B-Tree rules are different and so the balance is different. A
- B-Trie is a variable-length encoding, so every path through the forest doesn't
- have to have the same number of trees. Link-trees are on top by design choice,
- `empty and !links or links < forest.size`. */
+ B-Trie is a variable-length encoding, so the B-Tree rules about balance are
+ not maintained, (_ie_, every path through the forest doesn't have to have the
+ same number of trees.) The root-tree is always first, and link-trees are on
+ top, but this is a design choice. `empty and !links or links < forest.size`. */
 struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { 0, ARRAY_IDLE }
@@ -372,7 +372,7 @@ insert:
 	assert(t.i <= t.tree->bsize + 1u);
 
 	/* Split and backtrack if the leaf status is `FULL` or `LINK`. It's
-	 possible to not , not worth the code. */
+	 possible to not to backtrack, not worth the code. */
 	if(t.leaves) {
 		int is_vacant_parent = t.t && f->forest.data[p.t].bsize < TRIE_BRANCH;
 		assert(!is_allocated && (is_allocated = 1)); /* Loop very Bad. */
@@ -392,14 +392,23 @@ insert:
 				printf("parent branches %u, tree branches %u\n",
 					parent->bsize, tree->bsize);
 				assert(0);
-			} else { /* Split tree; half the tree is the new leaf. */
-				struct tree *const parent = new_link_tree(f),
+			} else { /* Split tree; sibling is the new leaf, parent is new. */
+				struct tree *parent = new_link_tree(f),
 					*const sibling = tree_array_new(&f->forest);
 				assert((t.leaves & FULL) && parent && sibling);
 				sibling->bsize = 0;
 				sibling->leaves[0].data = key;
-				parent->bsize = /*1*/0;
-				parent->leaves[0].link = sibling - f->forest.data;
+#if 0
+				if(!t.t) { /* Parent is the new root; swap. */
+					memcpy(parent, f->forest.data, sizeof *tree);
+					t.t = parent - f->forest.data, assert(t.t);
+					parent = f->forest.data;
+					printf("swaped %lu to preserve root.\n", t.t);
+				}
+#endif
+				parent->bsize = 1;
+				parent->leaves[!!(t.in & RIGHT)].link = sibling - f->forest.data;
+				parent->leaves[!(t.in & RIGHT)].link = t.t;
 				if(!trie_graph(f, "graph/top.gv")) perror("output");
 				assert(0);
 				/* parent: tree, sibling or sibling, tree (careful) */
