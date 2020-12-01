@@ -371,7 +371,8 @@ insert:
 	if(t.in & RIGHT) t.i += (lt = t.b1 - t.b0) + 1; else lt = 0;
 	assert(t.i <= t.tree->bsize + 1u);
 
-	/* Split and backtrack if the leaf status is `FULL` or `LINK`. */
+	/* Split and backtrack if the leaf status is `FULL` or `LINK`. It's
+	 possible to not , not worth the code. */
 	if(t.leaves) {
 		int is_vacant_parent = t.t && f->forest.data[p.t].bsize < TRIE_BRANCH;
 		assert(!is_allocated && (is_allocated = 1)); /* Loop very Bad. */
@@ -397,6 +398,9 @@ insert:
 				assert((t.leaves & FULL) && parent && sibling);
 				sibling->bsize = 0;
 				sibling->leaves[0].data = key;
+				parent->bsize = /*1*/0;
+				parent->leaves[0].link = sibling - f->forest.data;
+				if(!trie_graph(f, "graph/top.gv")) perror("output");
 				assert(0);
 				/* parent: tree, sibling or sibling, tree (careful) */
 				/* if(t.t) f->forest.data[p.t].leaves[p.i].link = parent */	
@@ -418,7 +422,7 @@ insert:
 			/* fixme: are you sure? */
 			t.t = f->links - 1, bit.b = t.bit;
 		}
-		goto tree; /* Backtrack. It's possible to not do this, but explodes. */
+		goto tree; /* Backtrack. */
 	}
 
 	/* Insert a leaf into the vacant leaf tree. */
