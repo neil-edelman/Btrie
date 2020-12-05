@@ -101,7 +101,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
 #define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
 #define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
-#define TRIE_MAX_LEFT 1 /* All-left worst-case, `[0, max(tree.left=255)]`. */
+#define TRIE_MAX_LEFT 1 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* Maximum branches. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
 
@@ -125,8 +125,8 @@ MIN_ARRAY(tree, struct tree)
  different trees, having `\sum_{trees} branches = \sum_{trees} leaves - trees`.
  B-Trie is a variable-length encoding, so the B-Tree rules about balance are
  not maintained, (_ie_, every path through the forest doesn't have to have the
- same number of trees.) The root-tree is always first, and link-trees are on
- top, but this is a design choice. `empty and !links or links < forest.size`. */
+ same number of trees.) By design-choice, the root-tree is always first, and
+ link-trees are on top. `empty and !links or links < forest.size`. */
 struct trie { size_t links; struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { 0, ARRAY_IDLE }
@@ -198,7 +198,7 @@ static const char *link_key(struct trie *const f, size_t link) {
 /** @return Leaf link-reference in the link-tree just above the data-tree that
  holds `key` in `f`. If there is none, returns null. @order \O(`key.length`) */
 static size_t *key_link(const struct trie *const f, const char *const key) {
-	struct tree* tree;
+	struct tree *tree;
 	struct { unsigned b0, b1, i; } n;
 	size_t bit = 0, t = 0;
 	assert(f && key);
@@ -262,7 +262,7 @@ static void split(struct trie *const f, const size_t t,
 
 /** Adds `link` to a new link-tree, which must be reserved, below `i` in tree
  `t`, which must be full or `is_parent` false, in forest `f`. */
-static void add_to_new_linktree(struct trie *const f, const int is_parent,
+static void link_to_new(struct trie *const f, const int is_parent,
 	const size_t t, const unsigned i, struct link *const link) {
 	struct tree *const tree = new_link_tree(f),
 		*const parent = is_parent ? f->forest.data + t : 0;
@@ -282,7 +282,7 @@ static void add_to_new_linktree(struct trie *const f, const int is_parent,
 }
 
 /** Adds `link` to position `i` in tree `t` in forest `f`. Must not be full. */
-static void add_to_vacant_linktree(struct trie *const f, const size_t t,
+static void link_to_vacant(struct trie *const f, const size_t t,
 	const unsigned i, const struct link *const link) {
 	struct tree *const parent = f->forest.data + t;
 	struct branch *branch;
@@ -372,7 +372,7 @@ insert:
 	assert(t.i <= t.tree->bsize + 1u);
 
 	/* Split and backtrack once if the leaf status is `FULL` or `LINK`. This
-	 is so the trie is not compact over order nodes, improves insertion time. */
+	 is so the trie is not compact, greatly improves insertion time. */
 	if(t.leaves) {
 		int is_vacant_parent = t.t && f->forest.data[p.t].bsize < TRIE_BRANCH;
 		assert(!is_allocated && (is_allocated = 1)); /* Loop very Bad. */
@@ -385,16 +385,17 @@ insert:
 			struct tree *tree = f->forest.data + t.t;
 			assert(t.i == 0 || t.i == tree->bsize + 1u);
 			printf("insert top; branches %u\n", tree->bsize);
-			if(is_vacant_parent) { /* Fixme: is this is possible? */
+			if(is_vacant_parent) { /* Fixme: is this is possible? +1 */
 				/* Remeber this could be a link-tree. */
 				/* P->tree ... P,branch->{key|tree} */
 				struct tree *const parent = f->forest.data + p.t;
 				printf("parent branches %u, tree branches %u\n",
 					parent->bsize, tree->bsize);
 				assert(0);
-			} else if(t.leaves & FULL) { /* Split tree; sibling is the new leaf, parent is new. */
-				struct tree *parent = new_link_tree(f),
-					*const sibling = tree_array_new(&f->forest);
+			} else if(t.leaves & FULL) { /* Split tree +2. */
+				/* Fixme: `link_to_new` implements this? */
+				struct tree *parent = new_link_tree(f), /* New branch. */
+					*const sibling = tree_array_new(&f->forest); /* New leaf. */
 				unsigned is_right = !!(t.in & RIGHT);
 				assert(parent && sibling);
 				sibling->bsize = 0;
@@ -414,21 +415,22 @@ insert:
 				parent->leaves[is_right].link = sibling - f->forest.data;
 				/*if(!trie_graph(f, "graph/top.gv")) perror("output");*/
 				return 1; /* Worst-case, all data lookup will be slower. */
-			} else { /* Not full. */
+			} else { /* Not full +2. */
+				/* `link_to_vacant` implements this? */
 				assert(0);
 			}
 		} else if(is_vacant_parent) {
 			struct link root;
 			split(f, t.t, &root);
 			if(!trie_graph(f, "graph/split-vacant1.gv")) perror("output");
-			add_to_vacant_linktree(f, p.t, p.i, &root);
+			link_to_vacant(f, p.t, p.i, &root);
 			if(!trie_graph(f, "graph/split-vacant2.gv")) perror("output");
 			t.t = p.t, bit.b = p.bit;
 		} else { /* Split: root goes to it's own node. */
 			struct link root;
 			split(f, t.t, &root);
 			if(!trie_graph(f, "graph/split-full1.gv")) perror("output");
-			add_to_new_linktree(f, !!t.t, p.t, p.i, &root);
+			link_to_new(f, !!t.t, p.t, p.i, &root);
 			if(!trie_graph(f, "graph/split-full2.gv")) perror("output");
 			/* fixme: are you sure? */
 			t.t = f->links - 1, bit.b = t.bit;
