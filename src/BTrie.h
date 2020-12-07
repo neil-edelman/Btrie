@@ -244,8 +244,8 @@ static struct tree *new_link_tree(struct trie *const f) {
  leaf in the link-tree above to maintain the integrity of the trie. */
 static void split(struct trie *const f, const size_t t,
 	struct link *const link) {
-	struct tree *const left = f->forest.data + t,
-		*const right = tree_array_new(&f->forest);
+	struct tree *const right = tree_array_new(&f->forest),
+		*const left = f->forest.data + t;
 	struct branch *branch;
 	unsigned lt = left->branches[0].left, rt = left->bsize - lt - 1;
 	assert(f && t >= f->links && t < f->forest.size && link
