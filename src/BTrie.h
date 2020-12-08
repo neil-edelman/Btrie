@@ -429,8 +429,9 @@ insert:
 				return 1; /* Worst-case, all data lookup will be slower. */
 			} else { /* Not full +2. */
 				struct tree *const small = min_tree(f, key);
-				assert(small);
+				assert(small && 1/*t.t could it be a data tree??? */);
 				if(!trie_graph(f, "graph/notfull.gv")) perror("output");
+				t.tree = f->forest.data + t.t;
 				/* `link_to_vacant` implements this? */
 				assert(0);
 			}
