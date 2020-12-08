@@ -70,9 +70,31 @@ finally:
 	trie_(&t);
 }
 
+static void test_thing(void) {
+	const char *words[] = { "x", "y", "z",  "a" };
+	const size_t words_size = sizeof words / sizeof *words;
+	const char *w, *s;
+	size_t i, j;
+	char fn[64];
+	int r;
+	struct trie t = TRIE_IDLE;
+	for(i = 0; i < words_size; i++) {
+		w = words[i];
+		s = trie_get(&t, w), assert(!s);
+		r = trie_add(&t, w), assert(r);
+		sprintf(fn, "graph/thing-%lu.gv", (unsigned long)i + 1);
+		r = trie_graph(&t, fn), assert(r);
+		s = trie_get(&t, w), assert(s == w);
+		for(j = 0; j < i; j++)
+			w = words[j], s = trie_get(&t, w), assert(s == w);
+	}
+	trie_(&t);
+}
+
 int main(void) {
 	unsigned seed = (unsigned)clock();
 	srand(seed), rand(), printf("Seed %u.\n", seed);
+	test_thing();
 	test_basic();
 	return EXIT_SUCCESS;
 }

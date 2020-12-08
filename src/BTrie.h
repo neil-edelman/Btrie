@@ -326,7 +326,7 @@ static int trie_add_unique(struct trie *const f, const char *const key) {
 	struct { size_t b, b0, b1; } bit; /* `b \in [b0, b1]` next branch. */
 	struct { struct tree *tree; size_t t; size_t bit; const char *key;
 		unsigned b0, b1, i; /* Node branch range, next leaf accumulator. */
-		enum { VACANT_DATA, LINK, FULL, LINK_FULL } leaves;
+		enum { VACANT_DATA, LINK, FULL, LINK_FULL } overflow;
 		enum { TREE_LEFT, RIGHT, TOP, TOP_RIGHT } in; } t; /* `t \in f`. */
 	struct { size_t t; size_t bit; unsigned i; } p; /* Parent valid if `t.t`. */
 	const char *sample; /* String from trie to compare with `key`. */
@@ -352,9 +352,9 @@ tree: /* Descend tree. */
 		t.b0 = 0, t.b1 = (t.tree = f->forest.data + t.t)->bsize, t.i = 0;
 		assert(t.tree->bsize <= TRIE_BRANCH);
 		/* Is it a link-tree? Is it full? */
-		t.leaves = (t.t < f->links) | ((t.tree->bsize >= TRIE_BRANCH) << 1);
+		t.overflow = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
 		bit.b0 = bit.b;
-		sample = (t.leaves & LINK)
+		sample = (t.overflow & LINK)
 			? link_key(f, t.tree->leaves[t.i].link) : t.tree->leaves[t.i].data;
 		while(t.b0 < t.b1) { /* Branches. */
 			branch = t.tree->branches + t.b0;
@@ -362,18 +362,18 @@ tree: /* Descend tree. */
 				if(TRIESTR_DIFF(key, sample, bit.b)) goto insert;
 			lt = branch->left + 1;
 			if(!TRIESTR_TEST(key, bit.b)) {
-				if(!t.leaves) branch->left = lt;
+				if(!t.overflow) branch->left = lt;
 				t.b1 = t.b0++ + lt;
 			} else {
 				t.b0 += lt, t.i += lt;
-				sample = (t.leaves & LINK) ? link_key(f,
+				sample = (t.overflow & LINK) ? link_key(f,
 					t.tree->leaves[t.i].link) : t.tree->leaves[t.i].data;
 			}
 			bit.b++, bit.b0 = bit.b1;
 		}
 		assert(t.b0 == t.b1 && t.i <= t.tree->bsize);
 		/* If link-tree, `t.t` is updated and we continue down another tree. */
-	} while((t.leaves & LINK) && (p.t = t.t, p.bit = t.bit,
+	} while((t.overflow & LINK) && (p.t = t.t, p.bit = t.bit,
 		t.t = t.tree->leaves[p.i = t.i].link, 1));
 	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++; /* Got to the leaves. */
 insert:
@@ -383,9 +383,9 @@ insert:
 	if(t.in & RIGHT) t.i += (lt = t.b1 - t.b0) + 1; else lt = 0;
 	assert(t.i <= t.tree->bsize + 1u);
 
-	/* Split and backtrack once if the leaf status is `FULL` or `LINK`. This
-	 is so the trie is not compact, greatly improves insertion time. */
-	if(t.leaves) {
+	/* Split and backtrack once on order boundry so the trie is not compact. */
+	if(t.overflow) { /* LINK | FULL */
+		/* Can we can add a branch to the parent tree? */
 		int is_vacant_parent = t.t && f->forest.data[p.t].bsize < TRIE_BRANCH;
 		assert(!is_allocated && (is_allocated = 1)); /* Loop very Bad. */
 		printf("parent %s -> reseving %u.\n",
@@ -393,7 +393,29 @@ insert:
 		/* Fail-fast; single-point-of-failure before modification. */
 		if(!tree_array_reserve(&f->forest,
 			f->forest.size + 1 + !is_vacant_parent)) return 0;
-		if(t.in & TOP) { /* The new branch wants to go on top of the root. */
+		/*...if(!is_vacant_parent) move down?*/
+		/*...either it's on the base of the data tree, FULL,
+		 just split the node at the root and go again.*/
+		/*...or it's a link tree, */
+		if(!(t.in & TOP)) { /* This is easy and what happens often. */
+			if(is_vacant_parent) {
+				struct link root;
+				split_data(f, t.t, &root); /* Fixme: what if it's LINK? */
+				if(!trie_graph(f, "graph/split-vacant1.gv")) perror("output");
+				link_to_vacant(f, p.t, p.i, &root);
+				if(!trie_graph(f, "graph/split-vacant2.gv")) perror("output");
+				t.t = p.t, bit.b = p.bit;
+			} else { /* Split: root goes to it's own node. */
+				struct link root;
+				split_data(f, t.t, &root);
+				if(!trie_graph(f, "graph/split-full1.gv")) perror("output");
+				link_to_new(f, !!t.t, p.t, p.i, &root);
+				if(!trie_graph(f, "graph/split-full2.gv")) perror("output");
+				/* fixme: are you sure? */
+				t.t = f->links - 1, bit.b = t.bit;
+			}
+			goto tree; /* Backtrack. */
+		} else { /* The new branch wants to go on top of the root. */
 			struct tree *tree = f->forest.data + t.t;
 			assert(t.i == 0 || t.i == tree->bsize + 1u);
 			printf("insert top; branches %u\n", tree->bsize);
@@ -404,7 +426,7 @@ insert:
 				printf("parent branches %u, tree branches %u\n",
 					parent->bsize, tree->bsize);
 				assert(0);
-			} else if(t.leaves & FULL) { /* Split tree +2. */
+			} else if(t.overflow & FULL) { /* Split tree +2. */
 				/* Fixme: `link_to_new` implements this? */
 				struct tree *parent = new_link_tree(f), /* New branch. */
 					*const sibling = tree_array_new(&f->forest); /* New leaf. */
@@ -416,7 +438,7 @@ insert:
 					memcpy(parent, f->forest.data, sizeof *tree);
 					tree = f->forest.data + (t.t = parent - f->forest.data);
 					parent = f->forest.data;
-					/*printf("swaped %lu to preserve root.\n", t.t);*/
+					printf("swaped %lu to preserve root.\n", t.t);
 				}
 				parent->bsize = 1;
 				parent->branches[0].left = 0;
@@ -428,30 +450,18 @@ insert:
 				/*if(!trie_graph(f, "graph/top.gv")) perror("output");*/
 				return 1; /* Worst-case, all data lookup will be slower. */
 			} else { /* Not full +2. */
+				printf("ON TOP, NOT FULL!!! ");
+#if 0
 				struct tree *const small = min_tree(f, key);
 				assert(small && 1/*t.t could it be a data tree??? */);
 				if(!trie_graph(f, "graph/notfull.gv")) perror("output");
 				t.tree = f->forest.data + t.t;
 				/* `link_to_vacant` implements this? */
+#endif
 				assert(0);
 			}
-		} else if(is_vacant_parent) {
-			struct link root;
-			split_data(f, t.t, &root);
-			if(!trie_graph(f, "graph/split-vacant1.gv")) perror("output");
-			link_to_vacant(f, p.t, p.i, &root);
-			if(!trie_graph(f, "graph/split-vacant2.gv")) perror("output");
-			t.t = p.t, bit.b = p.bit;
-		} else { /* Split: root goes to it's own node. */
-			struct link root;
-			split_data(f, t.t, &root);
-			if(!trie_graph(f, "graph/split-full1.gv")) perror("output");
-			link_to_new(f, !!t.t, p.t, p.i, &root);
-			if(!trie_graph(f, "graph/split-full2.gv")) perror("output");
-			/* fixme: are you sure? */
-			t.t = f->links - 1, bit.b = t.bit;
+			return 1;
 		}
-		goto tree; /* Backtrack. */
 	}
 
 	/* Insert a leaf into the vacant leaf tree. */
