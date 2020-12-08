@@ -185,7 +185,6 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 /* Debug. */
 static void print_tree(const struct trie *const t, const size_t tr);
 static int trie_graph(const struct trie *const t, const char *const fn);
-static void print_trie(const struct trie *const t);
 
 /** @return Sample the left key of tree `link` in `f`.
  @order \O(log_{ORDER} `forest.size`) */
@@ -219,10 +218,9 @@ static size_t *key_link(const struct trie *const f, const char *const key) {
 	return &tree->leaves[n.i].link;
 }
 
-/** Must already be a tree reserved from `f`. Copies the first data-node of `f`
- into the newly allocated tree at the end. Corrects the parent pointer to the
- altered order if present.
- @return The new link-tree, which is the old first data-tree.
+/** Consumes one tree. Copies the first data-node of `f` into the newly
+ allocated tree at the end. Corrects the parent pointer to the altered order if
+ present. @return The new link-tree, which is the old first data-tree.
  @order \O(`length`) */
 static struct tree *new_link_tree(struct trie *const f) {
 	struct tree *const end = tree_array_new(&f->forest),
@@ -238,11 +236,12 @@ static struct tree *new_link_tree(struct trie *const f) {
 	return first;
 }
 
-/** `t` must be a full-data tree; the left tree will be split at the root and
- be placed in a new right-tree, which must already have been reserved from `f`.
+/** Consumes one tree. `t` must be a full-data tree; the left tree will be
+ split at the root and be placed in a new right-tree, which must already have
+ been reserved from `f`.
  @param[link] The root of the tree is placed in here; it must be placed as a
  leaf in the link-tree above to maintain the integrity of the trie. */
-static void split(struct trie *const f, const size_t t,
+static void split_data(struct trie *const f, const size_t t,
 	struct link *const link) {
 	struct tree *const right = tree_array_new(&f->forest),
 		*const left = f->forest.data + t;
@@ -260,8 +259,9 @@ static void split(struct trie *const f, const size_t t,
 	memmove(branch, branch + 1, sizeof *branch * (left->bsize = lt));
 }
 
-/** Adds `link` to a new link-tree, which must be reserved, below `i` in tree
- `t`, which must be full or `is_parent` false, in forest `f`. */
+/** Consumes one tree. Adds `link` to a new link-tree, which must be reserved,
+ below `i` in tree `t`, which must be full or `is_parent` false, in forest
+ `f`. */
 static void link_to_new(struct trie *const f, const int is_parent,
 	const size_t t, const unsigned i, struct link *const link) {
 	struct tree *const tree = new_link_tree(f),
@@ -308,6 +308,18 @@ static void link_to_vacant(struct trie *const f, const size_t t,
 	assert(link->lr[0].link == leaf[-1].link); /* Brings down the left. */
 	leaf->link = link->lr[1].link;
 	parent->bsize++;
+}
+
+/** Consumes one tree. Adds a tree to `f` consisting of a single `leaf`. */
+static struct tree *min_tree(struct trie *const f, const char *const leaf) {
+	struct tree *const tree = tree_array_new(&f->forest);
+	assert(f && leaf && tree);
+	tree->bsize = 0;
+	tree->leaves[0].data = leaf;
+	return tree;
+}
+
+static void link_init_only_branch() {
 }
 
 static int trie_add_unique(struct trie *const f, const char *const key) {
@@ -416,19 +428,22 @@ insert:
 				/*if(!trie_graph(f, "graph/top.gv")) perror("output");*/
 				return 1; /* Worst-case, all data lookup will be slower. */
 			} else { /* Not full +2. */
+				struct tree *const small = min_tree(f, key);
+				assert(small);
+				if(!trie_graph(f, "graph/notfull.gv")) perror("output");
 				/* `link_to_vacant` implements this? */
 				assert(0);
 			}
 		} else if(is_vacant_parent) {
 			struct link root;
-			split(f, t.t, &root);
+			split_data(f, t.t, &root);
 			if(!trie_graph(f, "graph/split-vacant1.gv")) perror("output");
 			link_to_vacant(f, p.t, p.i, &root);
 			if(!trie_graph(f, "graph/split-vacant2.gv")) perror("output");
 			t.t = p.t, bit.b = p.bit;
 		} else { /* Split: root goes to it's own node. */
 			struct link root;
-			split(f, t.t, &root);
+			split_data(f, t.t, &root);
 			if(!trie_graph(f, "graph/split-full1.gv")) perror("output");
 			link_to_new(f, !!t.t, p.t, p.i, &root);
 			if(!trie_graph(f, "graph/split-full2.gv")) perror("output");
@@ -498,6 +513,7 @@ static void print_tree(const struct trie *const t, const size_t tr) {
 	printf("].\n");
 }
 
+#if 0
 static void print_trie(const struct trie *const t) {
 	size_t i;
 	assert(t);
@@ -506,6 +522,7 @@ static void print_trie(const struct trie *const t) {
 		printf("\t"), print_tree(t, i);
 	printf("}\n");
 }
+#endif
 
 /** Given branch index `b` in `tree`, calculate (inefficiently) the right
  child branches. Used in <fn:trie_graph>. @order \O(log `size`) */
