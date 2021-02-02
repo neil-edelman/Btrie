@@ -78,12 +78,14 @@ static void test_thing(void) {
 	char fn[64];
 	int r;
 	struct trie t = TRIE_IDLE;
+	assert(!errno);
 	for(i = 0; i < words_size; i++) {
 		w = words[i];
 		s = trie_get(&t, w), assert(!s);
 		r = trie_add(&t, w), assert(r);
 		sprintf(fn, "graph/thing-%lu.gv", (unsigned long)i + 1);
-		r = trie_graph(&t, fn), assert(r);
+		r = trie_graph(&t, fn);
+		if(!r) perror(fn), errno = 0; /* Ignore. */
 		s = trie_get(&t, w), assert(s == w);
 		for(j = 0; j < i; j++)
 			w = words[j], s = trie_get(&t, w), assert(s == w);
@@ -94,6 +96,7 @@ static void test_thing(void) {
 int main(void) {
 	unsigned seed = (unsigned)clock();
 	srand(seed), rand(), printf("Seed %u.\n", seed);
+	errno = 0;
 	test_thing();
 	test_basic();
 	return EXIT_SUCCESS;
