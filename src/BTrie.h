@@ -6,30 +6,30 @@
  ![Example of trie.](../web/trie.png)
 
  An <tag:<N>trie> is a prefix, or digital tree, and is isomorphic to
- <Morrison, 1968 PATRICiA>: an index of pointers-to-`N` in a (semi)-compact
- [binary radix trie](https://en.wikipedia.org/wiki/Radix_tree). While in a
- trie, the key is a necessarily read-only, null-terminated, (including
+ <Morrison, 1968 PATRICiA>. It is an index of pointers-to-`N` entries in a
+ (semi)-compact [binary radix trie](https://en.wikipedia.org/wiki/Radix_tree).
+ While in a trie, the key part of the entry is a necessarily read-only,
+ null-terminated, (including
  [modified UTF-8](https://en.wikipedia.org/wiki/UTF-8#Modified_UTF-8),) that
- uniquely identifies the data, (which could be just the key itself or an
- associative map.)
+ uniquely identifies the data.
 
  Internally, it is a dynamic array of trees in a linked-forest, as
- <Bayer, McCreight, 1972 Large (B-Trees)>. This defines the order as the
- maximum branching factor, as <Knuth, 1998 Art 3>.
+ <Bayer, McCreight, 1972 Large (B-Trees)>. As <Knuth, 1998 Art 3>, the order is
+ the maximum branching factor of a tree.
 
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code.
 
- @param[TRIE_NAME, TRIE_TYPE]
+ @param[TRIE_NAME, TRIE_ENTRY]
  A name that satisfies `C` naming conventions when mangled and an optional
- returnable type <typedef:<PN>type> that is declared, (it is used by reference
- only except if `TRIE_TEST`.) If `TRIE_TYPE` is not defined, defaults to
- `const char`. `<PN>` is private, whose names are prefixed in a manner to avoid
- collisions; any should be re-defined prior to use elsewhere.
+ returnable type <typedef:<PN>entry> for an associative map, (it is used by
+ reference only except if `TRIE_TEST`.) If not defined, the key-value entry is
+ only a `const char` key. `<PN>` is private, whose names are prefixed in a
+ manner to avoid collisions; any should be re-defined prior to use elsewhere.
 
  @param[TRIE_KEY]
  A function that satisfies <typedef:<PN>key_fn>. Must be defined if and only if
- `TRIE_TYPE` is defined.
+ `TRIE_ENTRY` is defined.
 
  @param[TRIE_TO_STRING]
  Defining this includes `ToString.h` with the keys as the string.

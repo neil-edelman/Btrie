@@ -11,7 +11,7 @@
 #define QUOTE(name) QUOTE_(name)
 
 /** Only used if `TRIE_TEST`. */
-typedef void (*PN_(action_fn))(PN_(type) *);
+typedef void (*PN_(action_fn))(PN_(entry) *);
 
 /* `TRIE_TEST` must be a function that implements `<PN>action_fn`. */
 static const PN_(action_fn) PN_(filler) = (TRIE_TEST);
@@ -76,7 +76,7 @@ static void PN_(graph)(const struct N_(trie) *const trie,
 	fprintf(fp, "digraph {\n"
 		"\trankdir = TB;\n"
 		"\tnode [shape = record, style = filled];\n"
-		"\tTrie [label = \"{\\<" QUOTE(TRIE_NAME) "\\>Trie: " QUOTE(TRIE_TYPE)
+		"\tTrie [label = \"{\\<" QUOTE(TRIE_NAME) "\\>Trie: " QUOTE(TRIE_ENTRY)
 		"\\l|size: %lu\\l}\"];\n", (unsigned long)N_(trie_size)(trie));
 	fprintf(fp, "\tnode [shape = none, fillcolor = none];\n");
 	for(n = 0; n < trie->branches.size; n++) {
@@ -108,7 +108,7 @@ static void PN_(graph)(const struct N_(trie) *const trie,
 
 /** Makes sure the `trie` is in a valid state. */
 static void PN_(valid)(const struct N_(trie) *const trie) {
-	PN_(type) *const*a;
+	PN_(entry) *const*a;
 	size_t i, i_end;
 	int cmp;
 	if(!trie) return;
@@ -126,11 +126,11 @@ static void PN_(test)(void) {
 	struct N_(trie) trie = TRIE_IDLE;
 	size_t n, size;
 	struct {
-		PN_(type) data;
+		PN_(entry) data;
 		int is_in;
 	} es[10];
 	const size_t es_size = sizeof es / sizeof *es;
-	PN_(type) *const*a, *i, *eject, copy;
+	PN_(entry) *const*a, *i, *eject, copy;
 	int ret;
 
 	PN_(valid)(0);
@@ -176,7 +176,7 @@ static void PN_(test)(void) {
  defining `assert`. @allow */
 static void N_(trie_test)(void) {
 	printf("<" QUOTE(TRIE_NAME) ">Trie"
-		" of type <" QUOTE(TRIE_TYPE) ">"
+		" of type <" QUOTE(TRIE_ENTRY) ">"
 		" was created using: TREE_KEY<" QUOTE(TRIE_KEY) ">;"
 		" TRIE_TEST <" QUOTE(TRIE_TEST) ">;"
 		" testing:\n");
