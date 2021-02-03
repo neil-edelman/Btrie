@@ -13,9 +13,9 @@
  [modified UTF-8](https://en.wikipedia.org/wiki/UTF-8#Modified_UTF-8),) that
  uniquely identifies the data.
 
- Internally, it is a dynamic array of trees in a linked-forest, as
- <Bayer, McCreight, 1972 Large (B-Trees)>. As <Knuth, 1998 Art 3>, the order is
- the maximum branching factor of a tree.
+ Internally, it is a dynamic array of fixed-size-trees in a linked-forest, as
+ <Bayer, McCreight, 1972 Large (B-Trees)>. The order is the maximum branching
+ factor of a tree, as <Knuth, 1998 Art 3>.
 
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code.
