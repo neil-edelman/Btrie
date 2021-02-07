@@ -17,6 +17,8 @@
  <Bayer, McCreight, 1972 Large (B-Trees)>. The order is the maximum branching
  factor of a tree, as <Knuth, 1998 Art 3>.
 
+ Say something about B-tree.
+
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code.
 
@@ -24,8 +26,9 @@
  A name that satisfies `C` naming conventions when mangled and an optional
  returnable type <typedef:<PN>entry> for an associative map, (it is used by
  reference only except if `TRIE_TEST`.) If not defined, the key-value entry is
- only a `const char` key. `<PN>` is private, whose names are prefixed in a
- manner to avoid collisions; any should be re-defined prior to use elsewhere.
+ only the key, thus a string set. `<PN>` is private, whose names are prefixed
+ in a manner to avoid collisions; any should be re-defined prior to use
+ elsewhere.
 
  @param[TRIE_KEY]
  A function that satisfies <typedef:<PN>key_fn>. Must be defined if and only if
@@ -351,7 +354,7 @@ tree: /* Descend tree. */
 		assert(t.t < f->forest.size);
 		t.b0 = 0, t.b1 = (t.tree = f->forest.data + t.t)->bsize, t.i = 0;
 		assert(t.tree->bsize <= TRIE_BRANCH);
-		/* Is it a link-tree? Is it full? */
+		/* Is this not safe to modify: is it a link-tree, is it full? */
 		t.overflow = (t.t < f->links) | ((t.tree->bsize == TRIE_BRANCH) << 1);
 		bit.b0 = bit.b;
 		sample = (t.overflow & LINK)
