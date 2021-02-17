@@ -106,7 +106,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIE_MAX_LEFT 1 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* Maximum branches. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
-#define TRIE_BITMAP (TRIE_ORDER - 1) / 8 + 1 /* Bitmap size in bytes. */
+#define TRIE_BITMAP ((TRIE_ORDER - 1) / 8 + 1) /* Bitmap size in bytes. */
 
 /** Fixed-maximum-size, pre-order tree to go in the forest. These are
  semi-implicit in that `right` is all the remaining branches after `left`.
@@ -156,7 +156,7 @@ static const char *trie_match(const struct trie *const trie,
 	struct branch *branch;
 	assert(trie && key);
 	if(!trie->forest.size) return 0; /* Empty. */
-	for(byte.i = 0, bit = 0, t = 0; ; ) { /* While `key`, descend tree. */
+	for(byte.i = 0, bit = 0, t = 0; ; t = tree->leaves[n.i].link) {
 		assert(t < trie->forest.size), tree = trie->forest.data + t;
 		n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
 		while(n.b0 < n.b1) { /* Tree branches. */
@@ -168,8 +168,7 @@ static const char *trie_match(const struct trie *const trie,
 			bit++;
 		}
 		assert(n.b0 == n.b1); /* Leaf. */
-		if(TRIESTR_TEST(tree->is_link, n.i)) t = tree->leaves[n.i].link;
-		else return tree->leaves[n.i].data;
+		if(!TRIESTR_TEST(tree->is_link, n.i)) return tree->leaves[n.i].data;
 	}
 }
 
@@ -200,6 +199,7 @@ static const char *key_sample(const struct tree_array *const ta,
 }
 
 static int add_unique(struct tree_array *const forest, const char *const key) {
+	static const char zero[TRIE_BITMAP]; /* For `memcmp`. */
 	struct { size_t b, b0, b1; } in_bit;
 	struct { size_t idx, tree_start_bit; } in_forest;
 	struct { unsigned br0, br1, i; } in_tree;
@@ -217,7 +217,7 @@ static int add_unique(struct tree_array *const forest, const char *const key) {
 		&& (tree->bsize = 0, memset(&tree->is_link, 0, TRIE_BITMAP),
 		tree->leaves[0].data = key, 1);
 
-	/* Initial conditions, then descend the trees in the forest. */
+	/* Initial conditions; descend the trees in the forest. */
 	in_bit.b = 0, in_forest.idx = 0;
 	do {
 		in_forest.tree_start_bit = in_bit.b;
@@ -225,12 +225,12 @@ tree:
 		assert(in_forest.idx < forest->size);
 		tree = forest->data + in_forest.idx;
 		sample = key_sample(forest, in_forest.idx, 0);
-		printf("tree %lu sample %s\n", in_forest.idx, sample);
-		print_tree(tree);
-		/* Todo: ... pre-select `is_write` if,
-		 * there is space for more entries,
-		 * no `is_link` is present. */
-		is_write = 1;
+		printf("At the top of tree %lu, bit %lu, sample %s:\n", in_forest.idx,
+			in_bit.b, sample), print_tree(tree);
+		/* Pre-select `is_write` there is space for more entries and no
+		 `is_link` is present. Would be faster with `stdint.h`. */
+		if(!is_write && tree->bsize < TRIE_BRANCH
+			&& !memcmp(zero, &tree->is_link, TRIE_BITMAP)) is_write = 1, printf("pre-select\n");
 		in_bit.b0 = in_bit.b;
 		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.i = 0;
 		while(in_tree.br0 < in_tree.br1) {
@@ -257,12 +257,17 @@ tree:
 	while(!TRIESTR_DIFF(key, sample, in_bit.b)) in_bit.b++;
 
 difference:
+	if(is_write) goto select_side;
 	/* If the tree is full, split it. */
 	assert(tree->bsize <= TRIE_BRANCH);
 	if(tree->bsize == TRIE_BRANCH) {
 		assert(0);
 	}
-	/* Right or left leaf. */
+	/* Now we are sure that this tree is the one getting modified. */
+	is_write = 1, in_bit.b = in_forest.tree_start_bit;
+	goto tree;
+
+select_side:
 	printf("diff %lu\n", in_bit.b);
 	if(TRIESTR_TEST(key, in_bit.b)) {
 		printf("%s right.\n", key);
