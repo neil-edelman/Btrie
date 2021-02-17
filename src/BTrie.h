@@ -192,7 +192,7 @@ static int trie_split(struct tree_array const *forest, const size_t forest_idx,
 	struct tree *tree = forest->data + forest_idx;
 	sprintf(fn, "graph/split-%lu-%u.gv", forest_idx, 1 + tree->bsize);
 	trie_graph((const struct trie *)forest, fn);
-	/*assert(0);*/
+	assert(0);
 	return 0;
 }
 
