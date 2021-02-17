@@ -132,7 +132,7 @@ MIN_ARRAY(tree, struct tree)
  link-trees are on top. `empty and !links or links < forest.size`. */
 struct trie { struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
-#define TRIE_IDLE { 0, ARRAY_IDLE }
+#define TRIE_IDLE { ARRAY_IDLE }
 #endif /* !zero --> */
 
 
@@ -184,6 +184,18 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 static void print_tree(const struct tree *);
 static int trie_graph(const struct trie *const t, const char *const fn);
 
+/** @return Success splitting the `tree_idx` of `forest` where the added leaf
+ is `i`. */
+static int trie_split(struct tree_array const *forest, const size_t forest_idx,
+	const unsigned tree_i) {
+	char fn[256];
+	struct tree *tree = forest->data + forest_idx;
+	sprintf(fn, "graph/split-%lu-%u.gv", forest_idx, 1 + tree->bsize);
+	trie_graph((const struct trie *)forest, fn);
+	/*assert(0);*/
+	return 0;
+}
+
 /** @return The leftmost key of the `b` branch of tree `t` in `f`. */
 static const char *key_sample(const struct tree_array *const ta,
 	size_t tr, const unsigned br) {
@@ -207,8 +219,7 @@ static int add_unique(struct tree_array *const forest, const char *const key) {
 	struct branch *branch;
 	union leaf *leaf;
 	const char *sample;
-	unsigned char left;
-	int is_write = 0;
+	int is_write, is_right;
 
 	assert(forest && key);
 	printf("___*** ADD \"%s\" ***\n", key);
@@ -217,8 +228,7 @@ static int add_unique(struct tree_array *const forest, const char *const key) {
 		&& (tree->bsize = 0, memset(&tree->is_link, 0, TRIE_BITMAP),
 		tree->leaves[0].data = key, 1);
 
-	/* Initial conditions; descend the trees in the forest. */
-	in_bit.b = 0, in_forest.idx = 0;
+	in_bit.b = 0, in_forest.idx = 0, is_write = 0;
 	do {
 		in_forest.tree_start_bit = in_bit.b;
 tree:
@@ -227,18 +237,17 @@ tree:
 		sample = key_sample(forest, in_forest.idx, 0);
 		printf("At the top of tree %lu, bit %lu, sample %s:\n", in_forest.idx,
 			in_bit.b, sample), print_tree(tree);
-		/* Pre-select `is_write` there is space for more entries and no
-		 `is_link` is present. Would be faster with `stdint.h`. */
+		/* Pre-select `is_write` if the tree is not full and has no links. */
 		if(!is_write && tree->bsize < TRIE_BRANCH
-			&& !memcmp(zero, &tree->is_link, TRIE_BITMAP)) is_write = 1, printf("pre-select\n");
+			&& !memcmp(&tree->is_link, zero, TRIE_BITMAP)) is_write = 1,
+			printf("pre-select\n");
 		in_bit.b0 = in_bit.b;
 		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.i = 0;
 		while(in_tree.br0 < in_tree.br1) {
 			branch = tree->branches + in_tree.br0;
 			/* Test all the skip bits. */
 			for(in_bit.b1 = in_bit.b + branch->skip; in_bit.b < in_bit.b1;
-				in_bit.b++) if(TRIESTR_DIFF(key, sample, in_bit.b))
-				goto difference;
+				in_bit.b++) if(TRIESTR_DIFF(key, sample, in_bit.b)) goto leaf;
 			/* Decision bit. */
 			if(!TRIESTR_TEST(key, in_bit.b)) {
 				in_tree.br1 = ++in_tree.br0 + branch->left;
@@ -256,48 +265,43 @@ tree:
 	/* Got to the leaves; uniqueness guarantees that this is safe. */
 	while(!TRIESTR_DIFF(key, sample, in_bit.b)) in_bit.b++;
 
-difference:
-	if(is_write) goto select_side;
+leaf:
+	if(TRIESTR_TEST(key, in_bit.b))
+		is_right = 1, in_tree.i += in_tree.br1 - in_tree.br0 + 1;
+	else
+		is_right = 0;
+	printf("insert %s, at index %u bit %lu.\n", key, in_tree.i, in_bit.b);
+	assert(in_tree.i <= tree->bsize + 1u);
+
+	if(is_write) goto insert;
 	/* If the tree is full, split it. */
 	assert(tree->bsize <= TRIE_BRANCH);
-	if(tree->bsize == TRIE_BRANCH) {
-		assert(0);
-	}
+	if(tree->bsize == TRIE_BRANCH
+		&& !trie_split(forest, in_forest.idx, in_tree.i)) return 0;
 	/* Now we are sure that this tree is the one getting modified. */
 	is_write = 1, in_bit.b = in_forest.tree_start_bit;
 	goto tree;
 
-select_side:
-	printf("diff %lu\n", in_bit.b);
-	if(TRIESTR_TEST(key, in_bit.b)) {
-		printf("%s right.\n", key);
-		assert(in_tree.br1 - in_tree.br0 < 255);
-		left = (unsigned char)(in_tree.br1 - in_tree.br0);
-		in_tree.i += left + 1;
-	} else {
-		printf("%s left.\n", key);
-		left = 0;
-	}
-	printf("insert %s, at index %u bit %lu.\n", key, in_tree.i, in_bit.b);
-	assert(in_tree.i <= tree->bsize + 1u);
-
 insert:
 	leaf = tree->leaves + in_tree.i;
-	printf("leaf[%lu] memmove(%u, %u, %u)\n", tree->bsize+1, in_tree.i+1, in_tree.i, tree->bsize + 1 - in_tree.i);
+	printf("leaf[%u] memmove(%u, %u, %u)\n", tree->bsize, in_tree.i+1, in_tree.i, tree->bsize + 1 - in_tree.i);
 	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize + 1 - in_tree.i));
 	leaf->data = key;
 
 	branch = tree->branches + in_tree.br0;
 	printf("branch[%u] memmove(%u, %u, %u)\n", tree->bsize, in_tree.br0+1, in_tree.br0, tree->bsize - in_tree.br0);
 	if(in_tree.br0 != in_tree.br1) { /* Split `skip` with the existing branch. */
-		assert(in_bit.b0 <= in_bit.b && in_bit.b + !in_tree.br0 <= in_bit.b0 + branch->skip);
+		assert(in_bit.b0 <= in_bit.b
+			&& in_bit.b + !in_tree.br0 <= in_bit.b0 + branch->skip);
 		printf("branch skip %u -> ", branch->skip);
 		branch->skip -= in_bit.b - in_bit.b0 + !in_tree.br0;
 		printf("%u\n", branch->skip);
 	}
 	memmove(branch + 1, branch, sizeof *branch * (tree->bsize - in_tree.br0));
-	branch->left = left; /*? = lt*/
-	assert(in_bit.b >= in_bit.b0 + !!in_tree.br0);
+	assert(in_tree.br1 - in_tree.br0 < 256
+		&& in_bit.b >= in_bit.b0 + !!in_tree.br0
+		&& in_bit.b - in_bit.b0 - !!in_tree.br0 < 256);
+	branch->left = is_right ? (unsigned char)(in_tree.br1 - in_tree.br0) : 0;
 	branch->skip = (unsigned char)(in_bit.b - in_bit.b0 - !!in_tree.br0);
 	tree->bsize++;
 
