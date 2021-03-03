@@ -103,7 +103,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
 #define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
 #define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
-#define TRIE_MAX_LEFT 1 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
+#define TRIE_MAX_LEFT 3 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* Maximum branches. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
 #define TRIE_BITMAP ((TRIE_ORDER - 1) / 8 + 1) /* Bitmap size in bytes. */
@@ -149,26 +149,29 @@ static void trie_clear(struct trie *const t) { assert(t), t->forest.size = 0; }
  null if `key` is definitely not in `trie`. @order \O(`key.length`) */
 static const char *trie_match(const struct trie *const trie,
 	const char *const key) {
-	size_t bit, t; /* `bit \in key`, `t \in forest`.  */
 	struct { size_t i, next; } byte; /* `key` null checks. */
+	size_t bit, t; /* `bit \in key`, `t \in forest`.  */
+	struct { size_t br0, br1, i; } in_tree;
 	struct tree *tree; /* `forest[t]`. */
-	struct { size_t b0, b1, i; } n; /* Branch range and leaf accumulator. */
 	struct branch *branch;
 	assert(trie && key);
 	if(!trie->forest.size) return 0; /* Empty. */
-	for(byte.i = 0, bit = 0, t = 0; ; t = tree->leaves[n.i].link) {
-		assert(t < trie->forest.size), tree = trie->forest.data + t;
-		n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
-		while(n.b0 < n.b1) { /* Tree branches. */
-			branch = tree->branches + n.b0;
+	for(byte.i = 0, bit = 0, t = 0; ; t = tree->leaves[in_tree.i].link) {
+		tree = trie->forest.data + t, assert(t < trie->forest.size);
+		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.i = 0;
+		while(in_tree.br0 < in_tree.br1) { /* Tree branches. */
+			branch = tree->branches + in_tree.br0;
 			for(byte.next = (bit += branch->skip) >> 3; byte.i < byte.next;
 				byte.i++) if(key[byte.i] == '\0') return 0;
-			if(!TRIESTR_TEST(key, bit)) n.b1 = ++n.b0 + branch->left;
-			else n.b0 += branch->left + 1, n.i += branch->left + 1;
+			if(!TRIESTR_TEST(key, bit))
+				in_tree.br1 = ++in_tree.br0 + branch->left;
+			else
+				in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
 			bit++;
 		}
-		assert(n.b0 == n.b1); /* Leaf. */
-		if(!TRIESTR_TEST(tree->is_link, n.i)) return tree->leaves[n.i].data;
+		assert(in_tree.br0 == in_tree.br1); /* Leaf. */
+		if(!TRIESTR_TEST(tree->is_link, in_tree.i))
+			return tree->leaves[in_tree.i].data;
 	}
 }
 
@@ -185,13 +188,160 @@ static void print_tree(const struct tree *);
 static int trie_graph(const struct trie *const t, const char *const fn);
 
 /** @return Success splitting the `tree_idx` of `forest` where the added leaf
- is `i`. */
-static int trie_split(struct tree_array const *forest, const size_t forest_idx,
-	const unsigned tree_i) {
+ is `tree_i`. */
+static int trie_split(struct tree_array *const forest, const size_t forest_idx) {
 	char fn[256];
-	struct tree *tree = forest->data + forest_idx;
-	sprintf(fn, "graph/split-%lu-%u.gv", forest_idx, 1 + tree->bsize);
+	struct { struct tree *old, *new; } tree;
+	struct { unsigned br0, br1, br2; int balance; } in_tree[2];
+	unsigned i = 0;
+	struct branch *branch;
+	tree.old = forest->data + forest_idx;
+	assert(forest && forest_idx < forest->size
+		&& tree.old->bsize == TRIE_BRANCH);
+	if(!(tree.new = tree_array_new(forest))) return 0;
+
+	/* print */
+	print_tree(tree.old);
+	sprintf(fn, "graph/split-%lu-%u-1.gv", forest_idx, 1 + tree.old->bsize);
 	trie_graph((const struct trie *)forest, fn);
+
+	branch = tree.old->branches;
+	in_tree[i].br0 = 1;
+	in_tree[i].br1 = 1 + branch->left;
+	in_tree[i].br2 = tree.old->bsize;
+	in_tree[i].balance = (int)(in_tree[i].br2 - 2 * in_tree[i].br1);
+	assert(in_tree[i].br1 <= in_tree[i].br2);
+	printf("{%u, %u, %u}, balance %d\n", in_tree[i].br0, in_tree[i].br1, in_tree[i].br2, in_tree[i].balance);
+	if(in_tree[i].balance < 0) { /* Split on left. */
+		printf("Left selected.\n");
+		{
+			unsigned j;
+			for(j = 0; j < in_tree[i].br0; j++) printf("%u ", branch[j].left);
+			printf("[");
+			for( ; j < in_tree[i].br1; j++) printf("%u ", branch[j].left);
+			printf("|");
+			for( ; j < in_tree[i].br2; j++) printf(" %u", branch[j].left);
+			printf("]");
+			for( ; j < tree.old->bsize; j++) printf(" %u", branch[j].left);
+			printf(".\n");
+		}
+		/*l =                   in_tree[i].br1 - in_tree[i].br0;
+		r = tree.old->bsize - l;*/
+		i = !i;
+		in_tree[i].balance = (int)(tree.old->bsize + 2 * (in_tree[!i].br2 - in_tree[!i].br1));
+		printf("bal %d\n", in_tree[i].balance);
+	} else { /* Split on right. */
+		printf("Right selected.\n");
+	}
+
+
+#if 0
+	/* Top-right. */
+	edge.right = 1, edge.idx = 0, edge.result = 1 + tree.old->branches[edge.idx];
+
+	in_tree[a].br0 = 0, in_tree[a].br1 = tree.old->bsize;
+	in_tree[a].edge = 1;
+	in_tree[a].balance = (int)in_tree[0].br1 - 2 - 2 * tree.old->branches[in_tree[a].edge - 1].left;
+	printf("balance(%d) = %d\n", in_tree[a].edge, in_tree[a].balance);
+
+	if(in_tree[a].balance < 0) goto top_left;
+	assert(0);
+top_left:
+	a = !a;
+	in_tree[a].br0 = 0, in_tree[a].br1 = tree.old->bsize;
+	in_tree[a].edge = -1;
+	in_tree[a].balance = tree.old->bsize - 2 * tree.old->branches[-in_tree[a].edge - 1].left;
+	printf("balance(%d) = %d\n", in_tree[a].edge, in_tree[a].balance);
+
+	if(in_tree[1].balance < 0) goto left;
+	assert(0);
+left:
+	branch = tree.old->branches + in_tree[a].br0;
+	a = !a;				in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
+	in_tree[a].br0 = 1 + tree.old->branches[in_tree[!a].br0];
+#endif
+
+
+	/*in_edge.right = 1;
+	do {
+		branch = tree.old->branches + in_tree0.br0;
+		if(in_edge.right < 0) {
+			in_tree1.br0 = in_tree0.br0 + 1;
+			in_tree1.br1 = in_tree0.br0 + 1 + branch->left;
+			in_tree1.i = in_tree0.i;
+		} else {
+			in_tree1.br0 = in_tree0.br0 + branch->left + 1;
+			in_tree1.br1 = in_tree0.br1;
+			in_tree1.i = in_tree0.i + branch->left + 1;
+		}
+		printf("b[0..1] t0: %u..%u, t1: %u..%u\n", in_tree0.br0, in_tree0.br1,
+			   in_tree1.br0, in_tree1.br1);
+		in_edge.balance = ()
+	} while(0);*/
+	assert(0);
+	/*in_edge.balance = (int)(in_tree0.branches - 2 * tree.old->branches[0].left - 1);
+	in_tree1.right = (in_tree0.balance < 0) ? -1 : 2;*/
+
+		/* Assess balance. */
+		/*if(!TRIESTR_TEST(key, bit))
+			in_tree.br1 = ++in_tree.br0 + branch->left;
+		else
+			in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
+		bit++;*/
+#if 0
+	/* By design choice, we want a partition between left and right; this means
+	 that it will be split on the exterior of the tree. Balance the resulting
+	 trees (by what? leaves create ties). */
+	{
+		/* `[..-1, 1..]` corresponds to outer edge distance from root,
+		 left `1-right`, right `right-1`, correspondingly. */
+		int right = 1;
+		unsigned char
+		int total = tree.old->bsize, r_prev = 0, r = 1,
+			left = tree.old->branches[r - 1].left,
+			right = total - 1 - left;
+		assert(tree.old->bsize);
+		balance = -2 * tree.old->branches[0].left - 1 + total;
+		printf("%d + (1) + %d = %d; balance %d\n", left, right, total, balance);
+		if(balance < 0) goto left;
+		if(left == right) { assert(0); }
+		goto split;
+	left:
+		printf("since that's negative, switch to left\n"
+			"left[%u] branch %u\n", r, total);
+		for(r_prev = 1, r = -1; ; r_prev = r, r--) {
+			left = tree.old->branches[-r - 1].left;
+			right = tree.old->bsize - left;
+			balance_next = tree.old->bsize - 2 * left;
+			printf("old %d; left %d, -%d + %d = balance %d\n", balance, r, left, right, balance_next);
+			if(!left) break;
+			if(balance_next < 0) { balance = balance_next; continue; }
+		}
+	}
+split:
+	assert(0);
+	/* split right */
+	left_branch  = tree.old->branches[0].left + 1;
+	right_branch = tree.old->bsize - 1 - tree.old->branches[0].left;
+	balance = 2 * tree.old->branches[0].left + 2 - tree.old->bsize;
+	printf("balance 0 right: %u - %u = %d.\n", left_branch, right_branch, balance);
+	/* split left */
+	left_branch  = tree.old->branches[0].left;
+	right_branch = tree.old->bsize - tree.old->branches[0].left;
+	balance = 2 * tree.old->branches[0].left - tree.old->bsize;
+	printf("balance 0 left: %u - %u = %d.\n", left_branch, right_branch, balance);
+	/* split left */
+	left_branch  = tree.old->branches[1].left;
+	right_branch = tree.old->bsize - tree.old->branches[1].left;
+	balance = 2 * tree.old->branches[1].left + 1 - tree.old->bsize;
+	printf("balance 1 left: %u - %u = %d. no\n", left_branch, right_branch, balance);
+	if(left_branch > right_branch) {
+		printf("1\n");
+		
+	} else { /* left_leaves <= right_leaves */
+		printf("2\n");
+	}
+#endif
 	assert(0);
 	return 0;
 }
@@ -277,7 +427,7 @@ leaf:
 	/* If the tree is full, split it. */
 	assert(tree->bsize <= TRIE_BRANCH);
 	if(tree->bsize == TRIE_BRANCH
-		&& !trie_split(forest, in_forest.idx, in_tree.i)) return 0;
+		&& !trie_split(forest, in_forest.idx)) return 0;
 	/* Now we are sure that this tree is the one getting modified. */
 	is_write = 1, in_bit.b = in_forest.tree_start_bit;
 	goto tree;
@@ -348,7 +498,7 @@ tree: /* Descend tree. */
 				if(TRIESTR_DIFF(key, sample, bit.b)) goto insert;
 			lt = branch->left + 1;
 			if(!TRIESTR_TEST(key, bit.b)) {
-				if(!t.is_full) branch->left = lt;
+				if(!t.is_full) branch->left =(unsigned char)lt,assert(lt < 256);
 				t.b1 = t.b0++ + lt;
 			} else {
 				t.b0 += lt, t.i += lt;
