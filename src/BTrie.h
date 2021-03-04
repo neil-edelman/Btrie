@@ -103,7 +103,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
 #define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
 #define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
-#define TRIE_MAX_LEFT 3 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
+#define TRIE_MAX_LEFT 7 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* Maximum branches. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
 #define TRIE_BITMAP ((TRIE_ORDER - 1) / 8 + 1) /* Bitmap size in bytes. */
@@ -235,7 +235,7 @@ static int trie_split(struct tree_array *const forest, const size_t forest_idx) 
 		for( ; j < tree.old->bsize; j++) printf(" %u", branch[j].left);
 		printf(" balance %d.\n", in_tree[!i].balance);
 	}
-	if(in_tree[i].balance < 0) { /* Going left. */
+	if(in_tree[i].balance < 0) { /* Should go left. */
 		assert(branch->left);
 		i = !i;
 		do {
@@ -275,9 +275,16 @@ static int trie_split(struct tree_array *const forest, const size_t forest_idx) 
 			}
 		} while(1);
 		/* ... */
-	} else { /* Going right. */
+	} else if(in_tree[i].balance > 0) { /* Should go right. */
 		printf("Right selected.\n");
+		i = !i;
+		in_tree[i].edge = in_tree[!i].edge + 1;
+		/* ... */
+		assert(0);
+	} else { /* Guessed 1-right correctly. */
+		printf("Guessed correctly %d.\n", in_tree[i].edge);
 	}
+	printf("splitting at edge %d.\n", in_tree[i].edge);
 	assert(0);
 	return 0;
 }
