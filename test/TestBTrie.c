@@ -34,8 +34,9 @@ static void test_basic(void) {
 
 	for(i = 0; i < words_size; i++) {
 		w = words[i];
-		s = trie_get(&t, w), assert(!s);
-		r = trie_add(&t, w), assert(r);
+		s = trie_get(&t, w)/*, assert(!s) fails for duplicates*/;
+		r = trie_add(&t, w)/*, assert(r)*/;
+		assert(!s ^ !r);
 		sprintf(fn, "graph/word-%lu.gv", (unsigned long)i + 1);
 		r = trie_graph(&t, fn), assert(r);
 		s = trie_get(&t, w), assert(s == w);

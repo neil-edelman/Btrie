@@ -103,7 +103,7 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
 #define TRIESTR_SET(a, i) (a[i >> 3] |= 128 >> (i & 7))
 #define TRIESTR_CLEAR(a, i) (a[i >> 3] &= ~(128 >> (i & 7)))
-#define TRIE_MAX_LEFT 7 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
+#define TRIE_MAX_LEFT 255 /* Worst-case all-left cap. `[0,max(tree.left=255)]` */
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* Maximum branches. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
 #define TRIE_BITMAP ((TRIE_ORDER - 1) / 8 + 1) /* Bitmap size in bytes. */
@@ -112,7 +112,7 @@ static type *name##_array_new(struct name##_array *const a) { \
  semi-implicit in that `right` is all the remaining branches after `left`.
  @fixme Save space with less then 256 by making it variable-width. */
 struct tree {
-	unsigned char bsize, /* +1 is the rank. */
+	unsigned short bsize, /* +1 is the rank. */
 		is_link[TRIE_BITMAP]; /* Bitmap associated to leaf. */
 	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
 	union leaf { const char *data; /*size_t bigskip;*/ size_t link; }
@@ -282,7 +282,7 @@ static int trie_split(struct tree_array *const forest, const size_t forest_idx) 
 		/* ... */
 		assert(0);
 	} else { /* Guessed 1-right correctly. */
-		printf("Guessed correctly %d.\n", in_tree[i].edge);
+		printf("Guessed correctly right, %d.\n", in_tree[i].edge);
 	}
 	printf("splitting at edge %d.\n", in_tree[i].edge);
 	assert(0);
