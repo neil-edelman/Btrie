@@ -213,29 +213,40 @@ static int trie_split(struct tree_array *const forest, const size_t forest_idx) 
 	assert(in_tree[i].br1 <= in_tree[i].br2);
 	/* Right one edge to start with. */
 	in_tree[i].balance = (int)(in_tree[i].br2 - 2 * in_tree[i].br1);
-	printf("{%u, %u, %u}, balance %d\n", in_tree[i].br0, in_tree[i].br1, in_tree[i].br2, in_tree[i].balance);
+	{
+		unsigned j;
+		for(j = 0; j < in_tree[i].br0; j++) printf("%u ", branch[j].left);
+		printf("[");
+		for( ; j < in_tree[i].br1; j++) printf("%u ", branch[j].left);
+		printf("|");
+		for( ; j < in_tree[i].br2; j++) printf(" %u", branch[j].left);
+		printf("]");
+		for( ; j < tree.old->bsize; j++) printf(" %u", branch[j].left);
+		printf(" balance %d.\n", in_tree[i].balance);
+	}
 	if(in_tree[i].balance < 0) { /* Going left. */
 		printf("Left selected.\n");
-		{
-			unsigned j;
-			for(j = 0; j < in_tree[i].br0; j++) printf("%u ", branch[j].left);
-			printf("[");
-			for( ; j < in_tree[i].br1; j++) printf("%u ", branch[j].left);
-			printf("|");
-			for( ; j < in_tree[i].br2; j++) printf(" %u", branch[j].left);
-			printf("]");
-			for( ; j < tree.old->bsize; j++) printf(" %u", branch[j].left);
-			printf(".\n");
-		}
-		i = !i;
-		in_tree[i].br0 = 1;
-		in_tree[i].br1 = 1 + branch->left;
-		in_tree[i].br2 = tree.old->bsize;
-		in_tree[i].balance = (int)(in_tree[i].br2 - 2 * (in_tree[i].br1 - in_tree[i].br0));
-		printf("balance %d\n", in_tree[i].balance);
-		if(in_tree[i].balance >= 0) { /* Crosses zero. */
-			assert(0);
-		}
+		do {
+			i = !i;
+			in_tree[i].br0 = 1;
+			in_tree[i].br1 = 1 + branch->left;
+			in_tree[i].br2 = tree.old->bsize;
+			in_tree[i].balance = (int)(in_tree[i].br2 - 2 * (in_tree[i].br1 - in_tree[i].br0));
+			{
+				unsigned j;
+				for(j = 0; j < in_tree[i].br0; j++) printf("%u ", branch[j].left);
+				printf("[");
+				for( ; j < in_tree[i].br1; j++) printf("%u ", branch[j].left);
+				printf("|");
+				for( ; j < in_tree[i].br2; j++) printf(" %u", branch[j].left);
+				printf("]");
+				for( ; j < tree.old->bsize; j++) printf(" %u", branch[j].left);
+				printf(" balance %d.\n", in_tree[i].balance);
+			}
+			if(in_tree[i].balance >= 0) { /* Crosses zero. */
+				assert(0);
+			}
+		} while(0);
 		/* ... */
 	} else { /* Going right. */
 		printf("Right selected.\n");
