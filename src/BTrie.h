@@ -115,8 +115,11 @@ static type *name##_array_new(struct name##_array *const a) { \
  semi-implicit in that `right` is all the remaining branches after `left`.
  @fixme Save space with less then 256 by making it variable-width. */
 struct tree {
-	unsigned short bsize, /* +1 is the rank. */
-		is_link[TRIE_BITMAP]; /* Bitmap associated to leaf. */
+	unsigned short bsize; /* +1 is the rank. */
+	union {
+		struct { unsigned char left, right; } uc;
+		unsigned short us;
+	} link;
 	struct branch { unsigned char left, skip; } branches[TRIE_BRANCH];
 	union leaf { const char *data; /*size_t bigskip;*/ size_t link; }
 		leaves[TRIE_ORDER];
@@ -172,9 +175,10 @@ static const char *trie_match(const struct trie *const trie,
 				in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
 			bit++;
 		}
-		assert(in_tree.br0 == in_tree.br1); /* Leaf. */
-		if(!TRIESTR_TEST(tree->is_link, in_tree.i))
-			return tree->leaves[in_tree.i].data;
+		assert(in_tree.br0 == in_tree.br1 && in_tree.i <= tree->bsize);
+		if(in_tree.i == 0 && tree->link.uc.left
+			|| in_tree.i == tree->bsize && tree->link.uc.right) continue;
+		return tree->leaves[in_tree.i].data;
 	}
 }
 
@@ -272,17 +276,22 @@ static const char *key_sample(const struct tree_array *const ta,
 	size_t tr, const unsigned br) {
 	struct tree *tree = ta->data + tr;
 	assert(ta && tr < ta->size && br <= tree->bsize);
-	if(!TRIESTR_TEST(tree->is_link, br)) return tree->leaves[br].data;
+	if(br || !tree->link.uc.left) return tree->leaves[br].data;
 	tr = tree->leaves[br].link;
 	for( ; ; ) {
-		tree = ta->data + tr;
-		if(!TRIESTR_TEST(tree->is_link, 0)) return tree->leaves[0].data;
+		if(!(tree = ta->data + tr)->link.uc.left) return tree->leaves[0].data;
 		tr = tree->leaves[0].link;
 	}
 }
 
+static void tree_min_init(struct tree *const tree, const char *const key) {
+	assert(tree && key);
+	tree->bsize = 0;
+	tree->link.us = 0;
+	tree->leaves[0].data = key;
+}
+
 static int add_unique(struct tree_array *const forest, const char *const key) {
-	static const char zero[TRIE_BITMAP]; /* For `memcmp`. */
 	struct { size_t b, b0, b1; } in_bit;
 	struct { size_t idx, tree_start_bit; } in_forest;
 	struct { unsigned br0, br1, i; } in_tree;
@@ -296,8 +305,7 @@ static int add_unique(struct tree_array *const forest, const char *const key) {
 	printf("___*** ADD \"%s\" ***\n", key);
 	/* Empty case: make a new tree with one leaf. */
 	if(!forest->size) return (tree = tree_array_new(forest))
-		&& (tree->bsize = 0, memset(&tree->is_link, 0, TRIE_BITMAP),
-		tree->leaves[0].data = key, 1);
+		&& (tree_min_init(tree, key), 1);
 
 	in_bit.b = 0, in_forest.idx = 0, is_write = 0;
 	do {
@@ -309,9 +317,8 @@ tree:
 		printf("At the top of tree %lu, bit %lu, sample %s:\n", in_forest.idx,
 			in_bit.b, sample), print_tree(tree);
 		/* Pre-select `is_write` if the tree is not full and has no links. */
-		if(!is_write && tree->bsize < TRIE_BRANCH
-			&& !memcmp(&tree->is_link, zero, TRIE_BITMAP)) is_write = 1,
-			printf("pre-select\n");
+		if(!is_write && tree->bsize < TRIE_BRANCH && !tree->link.us)
+			is_write = 1, printf("pre-select\n");
 		in_bit.b0 = in_bit.b;
 		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.i = 0;
 		while(in_tree.br0 < in_tree.br1) {
@@ -331,7 +338,8 @@ tree:
 			in_bit.b0 = in_bit.b1, in_bit.b++;
 		}
 		assert(in_tree.br0 == in_tree.br1 && in_tree.i <= tree->bsize);
-	} while(TRIESTR_TEST(tree->is_link, in_tree.i)
+	} while((!in_tree.i && tree->link.uc.left
+		|| in_tree.i == tree->bsize && tree->link.uc.right)
 		&& (in_forest.idx = tree->leaves[in_tree.i].link, 1));
 	/* Got to the leaves; uniqueness guarantees that this is safe. */
 	while(!TRIESTR_DIFF(key, sample, in_bit.b)) in_bit.b++;
@@ -398,8 +406,7 @@ static int trie_add_unique(struct tree_array *const f, const char *const key) {
 	printf("*** ADD \"%s\" ***\n", key);
 	/* Empty case; make a new tree. */
 	if(!f->size) return (t.tree = tree_array_new(f))
-		&& (t.tree->bsize = 0, memset(&t.tree->is_link, 0, TRIE_BITMAP),
-		t.tree->leaves[0].data = key, 1);
+		&& (tree_min_init(t.tree, key), 1);
 
 	/* Start at the beginning of the key and root of the forest. */
 	bit.b = 0, t.t = 0;
@@ -431,7 +438,9 @@ tree: /* Descend tree. */
 		}
 		assert(t.b0 == t.b1 && t.i <= t.tree->bsize);
 		/* If link-tree, `t.t` is updated and we continue down another tree. */
-	} while(TRIESTR_TEST(t.tree->is_link, t.i) && (p.t = t.t, p.bit = t.bit,
+	} while((!t.i && t.tree->link.uc.left
+		|| t.i == t.tree->bsize && t.tree->link.uc.right)
+		&& (p.t = t.t, p.bit = t.bit,
 		t.t = t.tree->leaves[p.i = t.i].link, 1));
 	while(!TRIESTR_DIFF(key, sample, bit.b)) bit.b++; /* Got to the leaves. */
 insert:
@@ -508,8 +517,9 @@ static void print_tree(const struct tree *const tree) {
 	printf("],leaf[");
 	for(i = 0; i <= tree->bsize; i++) {
 		printf("%s", i ? ", " : "");
-		if(TRIESTR_TEST(tree->is_link, i)) {
-			printf("%lu", tree->leaves[i].link);
+		if(!i && tree->link.uc.left
+			|| i == tree->bsize && tree->link.uc.right) {
+			printf("[%lu]", tree->leaves[i].link);
 		} else {
 			printf("%s", tree->leaves[i].data);
 		}
@@ -581,7 +591,9 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 		if(left) {
 			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u [style = dashed];\n",
 				t, br, t, br + 1);
-		} else if(!TRIESTR_TEST(tree->is_link, br) /*t >= f->links*/) {
+		} else if(/*(!i && t.tree->link.uc.left
+				   || t.i == t.tree->bsize && t.tree->link.uc.right)
+				  !TRIESTR_TEST(tree->is_link, br)*/0 /*t >= f->links*/) {
 			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
 				"[style = dashed, color = royalblue];\n",
 				t, br, t, trie_left_leaf(tree, br));
@@ -589,7 +601,7 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 		if(right) {
 			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u;\n",
 				t, br, t, br + left + 1);
-		} else if(!TRIESTR_TEST(tree->is_link, (br + left))/*t >= f->links*/) {
+		} else if(/*!TRIESTR_TEST(tree->is_link, (br + left))*//*t >= f->links*/0) {
 			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
 				"[color = royalblue];\n",
 				t, br, t, trie_left_leaf(tree, br) + left + 1);
@@ -597,12 +609,14 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 	}
 	fprintf(fp, "\t\t// leaves\n");
 	for(lf = 0; lf <= tree->bsize; lf++) {
-		if(TRIESTR_TEST(tree->is_link, lf)) {
+		fprintf(fp, "\t\tleaf%u_%u [label = \"", t, lf);
+		if(!lf && tree->link.uc.left
+			|| lf == tree->bsize && tree->link.uc.right) {
+			fprintf(fp, "[%lu]", tree->leaves[lf].link);
 		} else {
-			fprintf(fp,
-				"\t\tleaf%u_%u [label = \"%s\"];\n",
-				t, lf, tree->leaves[lf].data);
+			fprintf(fp, "%s", tree->leaves[lf].data);
 		}
+		fprintf(fp, "\"];\n");
 	}
 	fprintf(fp, "\t}\n");
 
