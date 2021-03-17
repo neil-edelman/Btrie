@@ -99,6 +99,7 @@ static int name##_array_reserve(struct name##_array *const a, \
  @throws[realloc, ERANGE] */ \
 static type *name##_array_new(struct name##_array *const a) { \
 	assert(a); \
+	if(sizeof *a->data == 1 && a->size >= (size_t)-1) return errno = ERANGE, 0;\
 	return name##_array_reserve(a, a->size + 1) ? a->data + a->size++ : 0; \
 }
 
@@ -178,8 +179,8 @@ static const char *trie_match(const struct trie *const trie,
 		assert(in_tree.br0 == in_tree.br1 && in_tree.i <= tree->bsize);
 		if(in_tree.i == 0 && tree->link.uc.left
 			|| in_tree.i == tree->bsize && tree->link.uc.right) continue;
-		return tree->leaves[in_tree.i].data;
 	}
+	return tree->leaves[in_tree.i].data;
 }
 
 /** @return `key` in `t` or null. @order \O(`key.length`) */
