@@ -17,10 +17,8 @@
  <Bayer, McCreight, 1972 Large (B-Trees)>. The order is the maximum branching
  factor of a tree, as <Knuth, 1998 Art 3>.
 
- Say something about B-tree.
-
  @fixme Strings can not be more then 8 characters the same. Have a leaf value
- 255->leaf.bigskip+255. May double the code.
+ 255->leaf.bigskip+255. May double the code. Maybe 8+8+8...?
 
  @param[TRIE_NAME, TRIE_ENTRY]
  A name that satisfies `C` naming conventions when mangled and an optional
@@ -99,9 +97,11 @@ static int name##_array_reserve(struct name##_array *const a, \
  @throws[realloc, ERANGE] */ \
 static type *name##_array_new(struct name##_array *const a) { \
 	assert(a); \
-	if(sizeof *a->data == 1 && a->size >= (size_t)-1) return errno = ERANGE, 0;\
+	if(sizeof *a->data == 1 && a->size >= (size_t)-1) \
+		{ errno = ERANGE; return 0; } /* Unlikely. */ \
 	return name##_array_reserve(a, a->size + 1) ? a->data + a->size++ : 0; \
 }
+
 
 #define TRIESTR_TEST(a, i) (a[i >> 3] & (128 >> (i & 7)))
 #define TRIESTR_DIFF(a, b, i) ((a[i >> 3] ^ b[i >> 3]) & (128 >> (i & 7)))
@@ -179,6 +179,7 @@ static const char *trie_match(const struct trie *const trie,
 		assert(in_tree.br0 == in_tree.br1 && in_tree.i <= tree->bsize);
 		if(in_tree.i == 0 && tree->link.uc.left
 			|| in_tree.i == tree->bsize && tree->link.uc.right) continue;
+		break;
 	}
 	return tree->leaves[in_tree.i].data;
 }
@@ -200,8 +201,10 @@ static int trie_graph(const struct trie *const t, const char *const fn);
 static int trie_split(struct tree_array *const forest, const size_t forest_idx) {
 	char fn[256];
 	struct { struct tree *old, *new; } tree;
-	struct { unsigned br0, left, right, br1; } in_tree;
-	int left_balance, right_balance, subtree, notsub;
+	struct { unsigned br0, br1, i; } in_tree;
+	/*struct { unsigned left, right; int lbalance, rbalance; } choice;*/
+	struct { unsigned sub; int balance; } choice[2];
+	unsigned c;
 	struct branch *branch;
 	tree.old = forest->data + forest_idx;
 	assert(forest && forest_idx < forest->size
@@ -213,10 +216,39 @@ static int trie_split(struct tree_array *const forest, const size_t forest_idx) 
 	sprintf(fn, "graph/split-%lu-%u-1.gv", forest_idx, 1 + tree.old->bsize);
 	trie_graph((const struct trie *)forest, fn);
 
-	/* Pick the greedy optimum balance for edge splitting. */
-	in_tree.br0 = 0, in_tree.br1 = tree.old->bsize;
+	/* Pick the greedy optimum balance on the outside edge. */
+	in_tree.br0 = 0, in_tree.br1 = tree.old->bsize, in_tree.i = 0;
+	branch = tree.old->branches + in_tree.br0;
+	/* Left edge coming from root. */
+	choice[0].sub = branch->left;
+	choice[0].balance = (int)((tree.old->bsize - choice[0].sub)  - choice[0].sub);
+	/* Right edge coming from root. */
+	choice[1].sub = in_tree.br1 - in_tree.br0 - 1 - branch->left;
+	choice[1].balance = (int)((tree.old->bsize - choice[1].sub) - choice[1].sub);
+	printf("%u: left branches %u, right branches %u\n", tree.old->bsize, choice[0].sub, choice[1].sub);
+	printf("%d/%d\n", choice[0].balance, choice[1].balance);
+	if(c = (abs(choice[0].balance) < abs(choice[1].balance))) { /* Left. */
+		printf("left c %u\n", c);
+		do {
+			in_tree.br1 = ++in_tree.br0 + branch->left;
+		} while(0);
+
+		/*if(!TRIESTR_TEST(key, bit))
+			in_tree.br1 = ++in_tree.br0 + branch->left;
+		else
+			in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;*/
+
+	} else { /* Right. */
+		printf("right c %u\n", c);
+		do {
+			in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
+		} while(0);
+	}
+	assert(0);
+
+#if 0
 	while(in_tree.br0 < in_tree.br1) {
-		branch = tree.old->branches + in_tree.br0;
+
 		in_tree.left = in_tree.br0 + 1;
 		in_tree.right = in_tree.left + branch->left;
 
@@ -239,8 +271,6 @@ static int trie_split(struct tree_array *const forest, const size_t forest_idx) 
 		}
 		assert(0);
 	}
-
-#if 0
 	while(1) {
 		{
 			unsigned j;
@@ -592,9 +622,9 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 		if(left) {
 			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u [style = dashed];\n",
 				t, br, t, br + 1);
-		} else if(/*(!i && t.tree->link.uc.left
-				   || t.i == t.tree->bsize && t.tree->link.uc.right)
-				  !TRIESTR_TEST(tree->is_link, br)*/0 /*t >= f->links*/) {
+		} else if(br == 0 && tree->link.uc.left) {
+			/* Link to other tree below. */
+		} else {
 			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
 				"[style = dashed, color = royalblue];\n",
 				t, br, t, trie_left_leaf(tree, br));
@@ -602,7 +632,9 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 		if(right) {
 			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u;\n",
 				t, br, t, br + left + 1);
-		} else if(/*!TRIESTR_TEST(tree->is_link, (br + left))*//*t >= f->links*/0) {
+		} else if(br == tree->bsize - 1 && tree->link.uc.right) {
+			/* Link to other tree below. */
+		} else {
 			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
 				"[color = royalblue];\n",
 				t, br, t, trie_left_leaf(tree, br) + left + 1);
@@ -675,3 +707,14 @@ finally:
 	if(fp) fclose(fp);
 	return success;
 }
+
+static void trie_unused_coda(void);
+static void trie_unused(void) {
+	trie(0);
+	trie_clear(0);
+	trie_get(0, 0);
+	trie_add(0, 0);
+	trie_graph(0, 0);
+	trie_unused_coda();
+}
+static void trie_unused_coda(void) { trie_unused(); }
