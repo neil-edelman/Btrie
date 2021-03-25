@@ -158,14 +158,14 @@ static const char *trie_match(const struct trie *const trie,
 	const char *const key) {
 	struct { size_t i, next; } byte; /* `key` null checks. */
 	size_t bit, t; /* `bit \in key`, `t \in forest`.  */
-	struct { size_t br0, br1, i; } in_tree;
+	struct { size_t br0, br1, lf; } in_tree;
 	struct tree *tree; /* `forest[t]`. */
 	struct branch *branch;
 	assert(trie && key);
 	if(!trie->forest.size) return 0; /* Empty. */
-	for(byte.i = 0, bit = 0, t = 0; ; t = tree->leaves[in_tree.i].link) {
+	for(byte.i = 0, bit = 0, t = 0; ; t = tree->leaves[in_tree.lf].link) {
 		tree = trie->forest.data + t, assert(t < trie->forest.size);
-		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.i = 0;
+		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.lf = 0;
 		while(in_tree.br0 < in_tree.br1) { /* Tree branches. */
 			branch = tree->branches + in_tree.br0;
 			for(byte.next = (bit += branch->skip) >> 3; byte.i < byte.next;
@@ -173,15 +173,15 @@ static const char *trie_match(const struct trie *const trie,
 			if(!TRIESTR_TEST(key, bit))
 				in_tree.br1 = ++in_tree.br0 + branch->left;
 			else
-				in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
+				in_tree.br0 += branch->left + 1, in_tree.lf += branch->left + 1;
 			bit++;
 		}
-		assert(in_tree.br0 == in_tree.br1 && in_tree.i <= tree->bsize);
-		if(in_tree.i == 0 && tree->link.uc.left
-			|| in_tree.i == tree->bsize && tree->link.uc.right) continue;
+		assert(in_tree.br0 == in_tree.br1 && in_tree.lf <= tree->bsize);
+		if(in_tree.lf == 0 && tree->link.uc.left
+			|| in_tree.lf == tree->bsize && tree->link.uc.right) continue;
 		break;
 	}
-	return tree->leaves[in_tree.i].data;
+	return tree->leaves[in_tree.lf].data;
 }
 
 /** @return `key` in `t` or null. @order \O(`key.length`) */
@@ -193,18 +193,16 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 
 
 /* Debug. */
-static void print_tree(const struct tree *);
 static int trie_graph(const struct trie *const t, const char *const fn);
 
-/** @return Success splitting the `tree_idx` of `forest` where the added leaf
- is `tree_i`. */
+/** @return Success splitting `tree_idx` of `forest`. @throws[malloc] */
 static int trie_split(struct tree_array *const forest, const size_t forest_idx) {
 	char fn[256];
 	struct { struct tree *old, *new; } tree;
-	struct { unsigned br0, br1, i; } in_tree;
-	/*struct { unsigned left, right; int lbalance, rbalance; } choice;*/
+	struct { unsigned br0, br1, i; } in_tree[2];
 	struct { unsigned sub; int balance; } choice[2];
-	unsigned c;
+	unsigned i; /* Binary index in `in_tree`. */
+	enum { RIGHT, LEFT } c, init_c; /* Binary index in `choice`. */
 	struct branch *branch;
 	tree.old = forest->data + forest_idx;
 	assert(forest && forest_idx < forest->size
@@ -212,92 +210,85 @@ static int trie_split(struct tree_array *const forest, const size_t forest_idx) 
 	if(!(tree.new = tree_array_new(forest))) return 0;
 
 	/* print */
-	print_tree(tree.old);
 	sprintf(fn, "graph/split-%lu-%u-1.gv", forest_idx, 1 + tree.old->bsize);
 	trie_graph((const struct trie *)forest, fn);
 
 	/* Pick the greedy optimum balance on the outside edge. */
-	in_tree.br0 = 0, in_tree.br1 = tree.old->bsize, in_tree.i = 0;
-	branch = tree.old->branches + in_tree.br0;
+	i = 0;
+	in_tree[i].br0 = 0, in_tree[i].br1 = tree.old->bsize, in_tree[i].i = 0;
+	printf("init: in_tree br[%u/%u] %u\n", in_tree[i].br0, in_tree[i].br1, in_tree[i].i);
+	branch = tree.old->branches + in_tree[i].br0;
 	/* Left edge coming from root. */
 	choice[0].sub = branch->left;
 	choice[0].balance = (int)((tree.old->bsize - choice[0].sub)  - choice[0].sub);
 	/* Right edge coming from root. */
-	choice[1].sub = in_tree.br1 - in_tree.br0 - 1 - branch->left;
+	choice[1].sub = in_tree[i].br1 - in_tree[i].br0 - 1 - branch->left;
 	choice[1].balance = (int)((tree.old->bsize - choice[1].sub) - choice[1].sub);
-	printf("%u: left branches %u, right branches %u\n", tree.old->bsize, choice[0].sub, choice[1].sub);
-	printf("%d/%d\n", choice[0].balance, choice[1].balance);
-	if(c = (abs(choice[0].balance) < abs(choice[1].balance))) { /* Left. */
-		printf("left c %u\n", c);
-		do {
-			in_tree.br1 = ++in_tree.br0 + branch->left;
-		} while(0);
-
-		/*if(!TRIESTR_TEST(key, bit))
-			in_tree.br1 = ++in_tree.br0 + branch->left;
-		else
-			in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;*/
-
-	} else { /* Right. */
-		printf("right c %u\n", c);
-		do {
-			in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
-		} while(0);
-	}
-	assert(0);
-
-#if 0
-	while(in_tree.br0 < in_tree.br1) {
-
-		in_tree.left = in_tree.br0 + 1;
-		in_tree.right = in_tree.left + branch->left;
-
-		subtree = in_tree.br1 - in_tree.br0;
-		notsub = tree.old->bsize - subtree;
-		left_balance  = (int)(tree.old->bsize - 2 * branch->left);
-		right_balance = (int)(tree.old->bsize - 2 * (in_tree.br1 - in_tree.br0));
-		{
-			unsigned j = 0;
-			while(j < in_tree.br0) printf("%u ", branch[j++].left);
-			printf("[");
-			while(j < in_tree.left) printf("%u ", branch[j++].left);
-			printf("(");
-			while(j < in_tree.right) printf("%u ", branch[j++].left);
-			printf(")(");
-			for( ; j < in_tree.br1; j++) printf(" %u", branch[j].left);
-			printf(")]");
-			for( ; j < tree.old->bsize; j++) printf(" %u", branch[j].left);
-			printf("; balance %d/%d.\n", left_balance, right_balance);
-		}
-		assert(0);
-	}
-	while(1) {
-		{
-			unsigned j;
-			for(j = 0; j < in_tree[i].br0; j++) printf("%u ", branch[j].left);
-			printf("[");
-			for( ; j < in_tree[i].br1; j++) printf("%u ", branch[j].left);
-			printf("|");
-			for( ; j < in_tree[i].br2; j++) printf(" %u", branch[j].left);
-			printf("]");
-			for( ; j < tree.old->bsize; j++) printf(" %u", branch[j].left);
-			printf("; balance %d/%d selected %s.\n", in_tree[i].balances[0], in_tree[i].balances[1], in_tree[i].best ? "right" : "left");
-		}
-		if(!in_tree[i].balances[in_tree[i].best]) break;
+	printf("tree bsize %u: branches %u/%u, balance %d/%d\n", tree.old->bsize, choice[0].sub, choice[1].sub, choice[0].balance, choice[1].balance);
+	i = !i;
+	if(c = init_c = (abs(choice[0].balance) < abs(choice[1].balance))) do {
+		/* Go leftwards until it reaches the closest balance to zero. */
+		in_tree[i].br1 = (in_tree[i].br0 = in_tree[!i].br0 + 1) + branch->left;
+		in_tree[i].i = in_tree[!i].i;
+		printf("in_tree left br[%u/%u] %u\n", in_tree[i].br0, in_tree[i].br1, in_tree[i].i);
 		branch = tree.old->branches + in_tree[i].br0;
-		if(!in_tree[i].best) { /* Left. */
-			//in_tree.br1 = ++in_tree.br0 + branch->left;
-			in_tree[!i].br0 = in_tree[i].br0 + 1;
-			in_tree[!i].br2 = in_tree[!i].br0 + branch->left;
-			branch = tree.old->branches + in_tree[!i].br0;
-			in_tree[!i].br1 = in_tree[!i].br0 + branch->left;
-		} else { /* Right. */
-			//in_tree.br0 += branch->left + 1, in_tree.i += branch->left + 1;
-
+		choice[c].sub = branch->left;
+		choice[c].balance = (int)((tree.old->bsize - choice[c].sub) - choice[c].sub);
+		printf("tree left bsize %u: branches %u, balance %d\n", tree.old->bsize, choice[c].sub, choice[c].balance);
+		c = !c, i = !i;
+		printf("%d < %d?\n", abs(choice[!i].balance), abs(choice[i].balance));
+	} while(abs(choice[!i].balance) < abs(choice[i].balance));
+	else do { /* Go rightwards until it reaches the closest balance to zero. */
+		in_tree[i].br0 = in_tree[!i].br0 + branch->left + 1;
+		in_tree[i].br1 = in_tree[!i].br1;
+		in_tree[i].i   = in_tree[!i].br0 + branch->left + 1;
+		printf("in_tree right br[%u/%u] %u\n", in_tree[i].br0, in_tree[i].br1, in_tree[i].i);
+		branch = tree.old->branches + in_tree[i].br0;
+		choice[c].sub = in_tree[i].br1 - in_tree[i].br0 - 1 - branch->left;
+		choice[c].balance = (int)((tree.old->bsize - choice[c].sub) - choice[c].sub);
+		printf("tree right bsize %u: branches %u, balance %d\n", tree.old->bsize, choice[c].sub, choice[c].balance);
+		c = !c, i = !i;
+		printf("%d < %d?\n", abs(choice[!i].balance), abs(choice[i].balance));
+	} while(abs(choice[!i].balance) < abs(choice[i].balance));
+	printf("final: in_tree %s br[%u/%u] %u\n", init_c ? "left" : "right", in_tree[i].br0, in_tree[i].br1, in_tree[i].i);
+	printf("final: choice sub %u balance %d\n", choice[c].sub, choice[c].balance);
+	/* Split semi-balanced part of it up to the `new` tree. */
+	branch = tree.old->branches + in_tree[i].br0;
+	tree.new->bsize = (unsigned short)choice[c].sub, printf("new bsize %u\n", tree.new->bsize);
+	if(init_c == LEFT) {
+		assert(in_tree[i].i == 0);
+		tree.new->link.uc.left = tree.old->link.uc.left;
+		tree.new->link.uc.right = 0;
+		tree.old->link.uc.left = 0;
+		{ /* Decrement the `left` counters. */
+			unsigned j;
+			printf("dec %u the first %u.\n", choice[c].sub, in_tree[!i].br0);
+			for(j = 0; j < in_tree[!i].br0; j++)
+				assert(tree.old->branches[j].left >= choice[c].sub),
+				tree.old->branches[j].left -= choice[c].sub;
 		}
-		assert(0);
+	} else { /* `RIGHT` */
+		assert(in_tree[i].i + choice[c].sub == tree.old->bsize); /* Maybe? */
+		tree.new->link.uc.left = 0;
+		tree.new->link.uc.right = tree.old->link.uc.right;
+		tree.old->link.uc.right = 0;
 	}
-#endif
+	printf("memcpy new, %u, [0..%u) @%lu\n",
+		in_tree[!i].br0, choice[c].sub, sizeof *tree.old->branches);
+	memcpy(tree.new->branches, tree.old->branches + in_tree[!i].br0,
+		sizeof *tree.old->branches * choice[c].sub);
+	memmove(tree.old->branches + in_tree[!i].br0,
+		tree.old->branches + in_tree[!i].br1,
+		sizeof *tree.old->branches * (tree.old->bsize - in_tree[!i].br1));
+	memcpy(tree.new->leaves, tree.old->leaves + in_tree[!i].i,
+		sizeof *tree.old->leaves * (choice[c].sub + 1));
+	memmove(tree.old->leaves + in_tree[!i].i,
+		tree.old->leaves + in_tree[i].i + choice[c].sub + 1,
+		sizeof *tree.old->leaves * (tree.old->bsize - in_tree[!i].br1));
+	tree.old->bsize -= choice[c].sub;
+
+	sprintf(fn, "graph/split-%lu-%u-2.gv", forest_idx, 1 + tree.old->bsize);
+	trie_graph((const struct trie *)forest, fn);
 	assert(0);
 	return 0;
 }
@@ -346,7 +337,7 @@ tree:
 		tree = forest->data + in_forest.idx;
 		sample = key_sample(forest, in_forest.idx, 0);
 		printf("At the top of tree %lu, bit %lu, sample %s:\n", in_forest.idx,
-			in_bit.b, sample), print_tree(tree);
+			in_bit.b, sample), tree_print(tree);
 		/* Pre-select `is_write` if the tree is not full and has no links. */
 		if(!is_write && tree->bsize < TRIE_BRANCH && !tree->link.us)
 			is_write = 1, printf("pre-select\n");
@@ -415,7 +406,7 @@ insert:
 	branch->skip = (unsigned char)(in_bit.b - in_bit.b0 - !!in_tree.br0);
 	tree->bsize++;
 
-	print_tree(tree);
+	tree_print(tree);
 
 	return 1;
 }
@@ -448,7 +439,7 @@ tree: /* Descend tree. */
 		t.b0 = 0, t.b1 = (t.tree = f->data + t.t)->bsize, t.i = 0;
 		assert(t.tree->bsize <= TRIE_BRANCH);
 		t.is_full = (t.tree->bsize == TRIE_BRANCH);
-		printf("tree "), print_tree(t.tree);
+		printf("tree "), tree_print(t.tree);
 		bit.b0 = bit.b;
 		sample = key_sample(f, t.t, t.i);
 		while(t.b0 < t.b1) { /* Branches. */
@@ -515,7 +506,7 @@ insert:
 	assert(bit.b >= bit.b0 + !!t.b0), branch->skip = bit.b - bit.b0 - !!t.b0;
 	t.tree->bsize++;
 
-	print_tree(t.tree);
+	tree_print(t.tree);
 
 	return 1;
 }
@@ -536,38 +527,43 @@ static int trie_add(struct trie *const trie, const char *const key)
 	}
 }*/
 
-static void print_tree(const struct tree *const tree) {
-	unsigned i;
+static void tree_print(const struct tree *const tree, const size_t label) {
+	unsigned i, s = 0;
+	struct { unsigned left, right, end; } stack[TRIE_ORDER];
 	assert(tree);
-	printf("tree:skip[");
+	printf("tree %lu:\n"
+		"\tskip[", (unsigned long)label);
 	for(i = 0; i < tree->bsize; i++)
 		printf("%s%u", i ? "," : "", tree->branches[i].skip);
-	printf("],left[");
-	for(i = 0; i < tree->bsize; i++)
-		printf("%s%u", i ? "," : "", tree->branches[i].left);
-	printf("],leaf[");
+	printf("],\n"
+		"\tleft[");
+	for(i = 0; i < tree->bsize; ) {
+		printf("%u", tree->branches[i].left);
+		stack[s].left = i + 1;
+		stack[s].right = i + 1 + tree->branches[i].left;
+		stack[s].end = s ? i < stack[s - 1].right ? stack[s - 1].right
+			: stack[s - 1].end : tree->bsize;
+		s++, i++;
+adorn:
+		if(!s) { assert(i == tree->bsize); break; }
+		if(i == stack[s-1].left) printf("(");
+		if(i == stack[s-1].right) printf("|");
+		if(i == stack[s-1].end) { printf(")"); s--; goto adorn; }
+	}
+	assert(s == 0);
+	printf("],\n"
+		"\tleaf[");
 	for(i = 0; i <= tree->bsize; i++) {
 		printf("%s", i ? ", " : "");
 		if(!i && tree->link.uc.left
 			|| i == tree->bsize && tree->link.uc.right) {
-			printf("[%lu]", tree->leaves[i].link);
+			printf("<%lu>", tree->leaves[i].link);
 		} else {
 			printf("%s", tree->leaves[i].data);
 		}
 	}
 	printf("].\n");
 }
-
-#if 0
-static void print_trie(const struct trie *const t) {
-	size_t i;
-	assert(t);
-	printf("forest {\n");
-	for(i = 0; i < t->forest.size; i++)
-		printf("\t"), print_tree(t, i);
-	printf("}\n");
-}
-#endif
 
 /** Given branch index `b` in `tree`, calculate (inefficiently) the right
  child branches. Used in <fn:trie_graph>. @order \O(log `size`) */
@@ -607,12 +603,53 @@ static unsigned trie_left_leaf(const struct tree *const tree,
 static void tree_graph(const struct trie *const f, const unsigned t,
 	FILE *const fp) {
 	struct tree *const tree = f->forest.data + t;
-	unsigned br, lf;
+	unsigned i, s = 0;
+	struct { unsigned left, right, end; } stack[TRIE_ORDER];
+
+
+	/*unsigned br, lf;*/
 	assert(f && t < f->forest.size && fp);
 	fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
 		"\t\tstyle = filled; fillcolor = lightgray; label = \"tree %lu\";\n",
 		(unsigned long)t, (unsigned long)t);
 	fprintf(fp, "\t\t// branches\n");
+
+
+
+
+	for(i = 0; i < tree->bsize; i++)
+		printf("%s%u", i ? "," : "", tree->branches[i].skip);
+	printf("],\n"
+		"\tleft[");
+	for(i = 0; i < tree->bsize; ) {
+		printf("%u", tree->branches[i].left);
+		stack[s].left = i + 1;
+		stack[s].right = i + 1 + tree->branches[i].left;
+		stack[s].end = s ? i < stack[s - 1].right ? stack[s - 1].right
+			: stack[s - 1].end : tree->bsize;
+		s++, i++;
+adorn:
+		if(!s) { assert(i == tree->bsize); break; }
+		if(i == stack[s-1].left) printf("(");
+		if(i == stack[s-1].right) printf("|");
+		if(i == stack[s-1].end) { printf(")"); s--; goto adorn; }
+	}
+	assert(s == 0);
+	printf("],\n"
+		"\tleaf[");
+	for(i = 0; i <= tree->bsize; i++) {
+		printf("%s", i ? ", " : "");
+		if(!i && tree->link.uc.left
+			|| i == tree->bsize && tree->link.uc.right) {
+			printf("<%lu>", tree->leaves[i].link);
+		} else {
+			printf("%s", tree->leaves[i].data);
+		}
+	}
+	printf("].\n");
+
+
+
 	for(br = 0; br < tree->bsize; br++) {
 		struct branch *const branch = tree->branches + br;
 		const unsigned left = branch->left, right = trie_right(tree, br);
@@ -681,7 +718,9 @@ static void tree_graph(const struct trie *const f, const unsigned t,
 static int trie_graph(const struct trie *const f, const char *const fn) {
 	FILE *fp = 0;
 	int success = 0;
-	assert(f && fn);
+	/* An additional constraint not present in code: if this is not met,
+	 GraphViz probably can't handle it anyway. */
+	assert(f && fn && f->forest.size <= (unsigned)-1);
 	if(!(fp = fopen(fn, "w"))) goto finally;
 	printf("(trie graph %s)\n", fn);
 	fprintf(fp, "digraph {\n"
@@ -693,13 +732,7 @@ static int trie_graph(const struct trie *const f, const char *const fn) {
 		fprintf(fp, "\tlabel = \"empty\";\n");
 	} else {
 		unsigned t = 0;
-		/* An additional constraint not present in code: if this is not met,
-		 GraphViz probably can't handle it anyway. */
-		assert(f->forest.size <= (unsigned)-1);
-		tree_graph(f, t, fp);
-		/*fprintf(fp, "\t// the following are not reachable from the root\n"
-			"\tnode [fillcolor = red];\n"
-			"\n");*/
+		for(t = 0; t < f->forest.size; t++) tree_graph(f, t, fp);
 	}
 	fprintf(fp, "}\n");
 	success = 1;
