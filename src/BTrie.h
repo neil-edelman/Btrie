@@ -143,6 +143,190 @@ struct trie { struct tree_array forest; };
 #endif /* !zero --> */
 
 
+
+
+
+static void tree_print(const struct tree *const tree, const size_t label) {
+	unsigned lf, br = 0;
+	struct { unsigned left, right, end; } br_stack[TRIE_ORDER];
+	assert(tree);
+	printf("tree %lu:\n"
+		"\tskip[", (unsigned long)label);
+	for(lf = 0; lf < tree->bsize; lf++)
+		printf("%s%u", lf ? "," : "", tree->branches[lf].skip);
+	printf("],\n"
+		"\tleft[");
+	for(lf = 0; lf < tree->bsize; ) {
+		printf("%u", tree->branches[lf].left);
+		br_stack[br].left = lf + 1;
+		br_stack[br].right = lf + 1 + tree->branches[lf].left;
+		br_stack[br].end = br ? lf < br_stack[br - 1].right ? br_stack[br - 1].right
+			: br_stack[br - 1].end : tree->bsize;
+		br++, lf++;
+adorn:
+		if(!br) { assert(lf == tree->bsize); break; }
+		if(lf == br_stack[br-1].left) printf("(");
+		if(lf == br_stack[br-1].right) printf("|");
+		if(lf == br_stack[br-1].end) { printf(")"); br--; goto adorn; }
+	}
+	assert(br == 0);
+	printf("],\n"
+		"\tleaf[");
+	for(lf = 0; lf <= tree->bsize; lf++) {
+		printf("%s", lf ? ", " : "");
+		if(!lf && tree->link.uc.left
+			|| lf == tree->bsize && tree->link.uc.right) {
+			printf("<%lu>", tree->leaves[lf].link);
+		} else {
+			printf("%s", tree->leaves[lf].data);
+		}
+	}
+	printf("].\n");
+}
+
+static void tree_graph(const struct trie *const f, const unsigned t,
+	FILE *const fp) {
+	struct tree *const tree = f->forest.data + t;
+	unsigned i, s = 0;
+	struct { unsigned left, right, end; } stack[TRIE_ORDER];
+
+
+	/*unsigned br, lf;*/
+	assert(f && t < f->forest.size && fp);
+	fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
+		"\t\tstyle = filled; fillcolor = lightgray; label = \"tree %lu\";\n",
+		(unsigned long)t, (unsigned long)t);
+	fprintf(fp, "\t\t// branches\n");
+
+
+
+	for(i = 0; i < tree->bsize; i++)
+		printf("%s%u", i ? "," : "", tree->branches[i].skip);
+	printf("],\n"
+		"\tleft[");
+	for(i = 0; i < tree->bsize; ) {
+		printf("%u", tree->branches[i].left);
+		stack[s].left = i + 1;
+		stack[s].right = i + 1 + tree->branches[i].left;
+		stack[s].end = s ? i < stack[s - 1].right ? stack[s - 1].right
+			: stack[s - 1].end : tree->bsize;
+		s++, i++;
+adorn:
+		if(!s) { assert(i == tree->bsize); break; }
+		if(i == stack[s-1].left) printf("(");
+		if(i == stack[s-1].right) printf("|");
+		if(i == stack[s-1].end) { printf(")"); s--; goto adorn; }
+	}
+	assert(s == 0);
+	printf("],\n"
+		"\tleaf[");
+	for(i = 0; i <= tree->bsize; i++) {
+		printf("%s", i ? ", " : "");
+		if(!i && tree->link.uc.left
+			|| i == tree->bsize && tree->link.uc.right) {
+			printf("<%lu>", tree->leaves[i].link);
+		} else {
+			printf("%s", tree->leaves[i].data);
+		}
+	}
+	printf("].\n");
+
+
+
+	for(br = 0; br < tree->bsize; br++) {
+		struct branch *const branch = tree->branches + br;
+		const unsigned left = branch->left, right = trie_right(tree, br);
+		fprintf(fp, "\t\tbranch%u_%u "
+			"[label = \"%u\", shape = none, fillcolor = none];\n",
+			t, br, branch->skip);
+		if(left) {
+			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u [style = dashed];\n",
+				t, br, t, br + 1);
+		} else if(br == 0 && tree->link.uc.left) {
+			/* Link to other tree below. */
+		} else {
+			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
+				"[style = dashed, color = royalblue];\n",
+				t, br, t, trie_left_leaf(tree, br));
+		}
+		if(right) {
+			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u;\n",
+				t, br, t, br + left + 1);
+		} else if(br == tree->bsize - 1 && tree->link.uc.right) {
+			/* Link to other tree below. */
+		} else {
+			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
+				"[color = royalblue];\n",
+				t, br, t, trie_left_leaf(tree, br) + left + 1);
+		}
+	}
+	fprintf(fp, "\t\t// leaves\n");
+	for(lf = 0; lf <= tree->bsize; lf++) {
+		fprintf(fp, "\t\tleaf%u_%u [label = \"", t, lf);
+		if(!lf && tree->link.uc.left
+			|| lf == tree->bsize && tree->link.uc.right) {
+			fprintf(fp, "[%lu]", tree->leaves[lf].link);
+		} else {
+			fprintf(fp, "%s", tree->leaves[lf].data);
+		}
+		fprintf(fp, "\"];\n");
+	}
+	fprintf(fp, "\t}\n");
+
+/*		for(lf = 0; lf <= tree->bsize; lf++) {
+			struct { unsigned b0, b1, i; } n;
+			unsigned parent = 0, lt;
+			unsigned l = (unsigned)tree->leaves[lf].link;
+			struct tree *link = f->forest.data + l;
+			unsigned is_left = 0;
+			n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
+			assert(tree && lf <= n.b1);
+			while(n.b0 < n.b1) {
+				parent = n.b0;
+				lt = tree->branches[n.b0].left + 1;
+				if(lf < n.i + lt) n.b1 = n.b0++ + lt, is_left = 1;
+				else n.b0 += lt, n.i += lt, is_left = 0;
+			}
+			assert(n.b0 == n.b1 && n.b0 <= tree->bsize && lf == n.i);
+			fprintf(fp,
+				"\t%s%u_%u -> %s%u_%u [ltail=cluster_tree%u, "
+				"lhead=cluster_tree%u, color = firebrick, style = %s];\n",
+				tree->bsize ? "branch" : "leaf", t, parent,
+				link->bsize ? "branch" : "leaf", l, 0,
+				t, l, is_left ? "dashed" : "solid");
+		}*/
+	fprintf(fp, "\n");
+}
+
+static int trie_graph(const struct trie *const f, const char *const fn) {
+	FILE *fp = 0;
+	int success = 0;
+	/* An additional constraint not present in code: if this is not met,
+	 GraphViz probably can't handle it anyway. */
+	assert(f && fn && f->forest.size <= (unsigned)-1);
+	if(!(fp = fopen(fn, "w"))) goto finally;
+	printf("(trie graph %s)\n", fn);
+	fprintf(fp, "digraph {\n"
+		"\trankdir=TB;\n"
+		"\tnode [shape = box, style = filled, fillcolor = lightsteelblue];\n"
+		"\t// forest size %lu.\n"
+		"\n", (unsigned long)f->forest.size);
+	if(!f->forest.size) {
+		fprintf(fp, "\tlabel = \"empty\";\n");
+	} else {
+		unsigned t = 0;
+		for(t = 0; t < f->forest.size; t++) tree_graph(f, t, fp);
+	}
+	fprintf(fp, "}\n");
+	success = 1;
+finally:
+	if(fp) fclose(fp);
+	return success;
+}
+
+
+
+
 /** New idle `f`. */
 static void trie(struct trie *const t) { assert(t), tree_array(&t->forest); }
 
@@ -190,12 +374,9 @@ static const char *trie_get(const struct trie *const t, const char *const key) {
 	return leaf && !strcmp(leaf, key) ? leaf : 0;
 }
 
-/* Debug. */
-static int trie_graph(const struct trie *const t, const char *const fn);
-static void tree_print(const struct tree *const tree, const size_t label);
-
 /** @return Success splitting `tree_idx` of `forest`. @throws[malloc] */
-static int trie_split(struct tree_array *const forest, const size_t forest_idx) {
+static int trie_split(struct tree_array *const forest,
+	const size_t forest_idx) {
 	char fn[256];
 	struct { struct tree *old, *new; } tree;
 	struct { unsigned br0, br1, lf; } in_tree[2];
@@ -409,55 +590,19 @@ insert:
 static int trie_add(struct trie *const trie, const char *const key)
 	{ return trie_get(trie, key) ? 0 : trie_add_unique(&trie->forest, key); }
 
-
-
+#if 0 /* Unused yet. */
 /** @return Whether `a` and `b` are equal up to the minimum. Used in
  <fn:trie_prefix>. */
-/*static int trie_is_prefix(const char *a, const char *b) {
+static int trie_is_prefix(const char *a, const char *b) {
 	for( ; ; a++, b++) {
 		if(*a == '\0') return 1;
 		if(*a != *b) return *b == '\0';
 	}
-}*/
-
-static void tree_print(const struct tree *const tree, const size_t label) {
-	unsigned i, s = 0;
-	struct { unsigned left, right, end; } stack[TRIE_ORDER];
-	assert(tree);
-	printf("tree %lu:\n"
-		"\tskip[", (unsigned long)label);
-	for(i = 0; i < tree->bsize; i++)
-		printf("%s%u", i ? "," : "", tree->branches[i].skip);
-	printf("],\n"
-		"\tleft[");
-	for(i = 0; i < tree->bsize; ) {
-		printf("%u", tree->branches[i].left);
-		stack[s].left = i + 1;
-		stack[s].right = i + 1 + tree->branches[i].left;
-		stack[s].end = s ? i < stack[s - 1].right ? stack[s - 1].right
-			: stack[s - 1].end : tree->bsize;
-		s++, i++;
-adorn:
-		if(!s) { assert(i == tree->bsize); break; }
-		if(i == stack[s-1].left) printf("(");
-		if(i == stack[s-1].right) printf("|");
-		if(i == stack[s-1].end) { printf(")"); s--; goto adorn; }
-	}
-	assert(s == 0);
-	printf("],\n"
-		"\tleaf[");
-	for(i = 0; i <= tree->bsize; i++) {
-		printf("%s", i ? ", " : "");
-		if(!i && tree->link.uc.left
-			|| i == tree->bsize && tree->link.uc.right) {
-			printf("<%lu>", tree->leaves[i].link);
-		} else {
-			printf("%s", tree->leaves[i].data);
-		}
-	}
-	printf("].\n");
 }
+#endif
 
+
+#if 0
 /** Given branch index `b` in `tree`, calculate (inefficiently) the right
  child branches. Used in <fn:trie_graph>. @order \O(log `size`) */
 static unsigned trie_right(const struct tree *const tree, const unsigned b) {
@@ -492,147 +637,8 @@ static unsigned trie_left_leaf(const struct tree *const tree,
 	assert(n0 == n);
 	return i;
 }
+#endif
 
-static void tree_graph(const struct trie *const f, const unsigned t,
-	FILE *const fp) {
-	struct tree *const tree = f->forest.data + t;
-	unsigned i, s = 0;
-	struct { unsigned left, right, end; } stack[TRIE_ORDER];
-
-
-	/*unsigned br, lf;*/
-	assert(f && t < f->forest.size && fp);
-	fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
-		"\t\tstyle = filled; fillcolor = lightgray; label = \"tree %lu\";\n",
-		(unsigned long)t, (unsigned long)t);
-	fprintf(fp, "\t\t// branches\n");
-
-
-
-
-	for(i = 0; i < tree->bsize; i++)
-		printf("%s%u", i ? "," : "", tree->branches[i].skip);
-	printf("],\n"
-		"\tleft[");
-	for(i = 0; i < tree->bsize; ) {
-		printf("%u", tree->branches[i].left);
-		stack[s].left = i + 1;
-		stack[s].right = i + 1 + tree->branches[i].left;
-		stack[s].end = s ? i < stack[s - 1].right ? stack[s - 1].right
-			: stack[s - 1].end : tree->bsize;
-		s++, i++;
-adorn:
-		if(!s) { assert(i == tree->bsize); break; }
-		if(i == stack[s-1].left) printf("(");
-		if(i == stack[s-1].right) printf("|");
-		if(i == stack[s-1].end) { printf(")"); s--; goto adorn; }
-	}
-	assert(s == 0);
-	printf("],\n"
-		"\tleaf[");
-	for(i = 0; i <= tree->bsize; i++) {
-		printf("%s", i ? ", " : "");
-		if(!i && tree->link.uc.left
-			|| i == tree->bsize && tree->link.uc.right) {
-			printf("<%lu>", tree->leaves[i].link);
-		} else {
-			printf("%s", tree->leaves[i].data);
-		}
-	}
-	printf("].\n");
-
-
-
-	for(br = 0; br < tree->bsize; br++) {
-		struct branch *const branch = tree->branches + br;
-		const unsigned left = branch->left, right = trie_right(tree, br);
-		fprintf(fp, "\t\tbranch%u_%u "
-			"[label = \"%u\", shape = none, fillcolor = none];\n",
-			t, br, branch->skip);
-		if(left) {
-			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u [style = dashed];\n",
-				t, br, t, br + 1);
-		} else if(br == 0 && tree->link.uc.left) {
-			/* Link to other tree below. */
-		} else {
-			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
-				"[style = dashed, color = royalblue];\n",
-				t, br, t, trie_left_leaf(tree, br));
-		}
-		if(right) {
-			fprintf(fp, "\t\tbranch%u_%u -> branch%u_%u;\n",
-				t, br, t, br + left + 1);
-		} else if(br == tree->bsize - 1 && tree->link.uc.right) {
-			/* Link to other tree below. */
-		} else {
-			fprintf(fp, "\t\tbranch%u_%u -> leaf%u_%u "
-				"[color = royalblue];\n",
-				t, br, t, trie_left_leaf(tree, br) + left + 1);
-		}
-	}
-	fprintf(fp, "\t\t// leaves\n");
-	for(lf = 0; lf <= tree->bsize; lf++) {
-		fprintf(fp, "\t\tleaf%u_%u [label = \"", t, lf);
-		if(!lf && tree->link.uc.left
-			|| lf == tree->bsize && tree->link.uc.right) {
-			fprintf(fp, "[%lu]", tree->leaves[lf].link);
-		} else {
-			fprintf(fp, "%s", tree->leaves[lf].data);
-		}
-		fprintf(fp, "\"];\n");
-	}
-	fprintf(fp, "\t}\n");
-
-/*		for(lf = 0; lf <= tree->bsize; lf++) {
-			struct { unsigned b0, b1, i; } n;
-			unsigned parent = 0, lt;
-			unsigned l = (unsigned)tree->leaves[lf].link;
-			struct tree *link = f->forest.data + l;
-			unsigned is_left = 0;
-			n.b0 = 0, n.b1 = tree->bsize, n.i = 0;
-			assert(tree && lf <= n.b1);
-			while(n.b0 < n.b1) {
-				parent = n.b0;
-				lt = tree->branches[n.b0].left + 1;
-				if(lf < n.i + lt) n.b1 = n.b0++ + lt, is_left = 1;
-				else n.b0 += lt, n.i += lt, is_left = 0;
-			}
-			assert(n.b0 == n.b1 && n.b0 <= tree->bsize && lf == n.i);
-			fprintf(fp,
-				"\t%s%u_%u -> %s%u_%u [ltail=cluster_tree%u, "
-				"lhead=cluster_tree%u, color = firebrick, style = %s];\n",
-				tree->bsize ? "branch" : "leaf", t, parent,
-				link->bsize ? "branch" : "leaf", l, 0,
-				t, l, is_left ? "dashed" : "solid");
-		}*/
-	fprintf(fp, "\n");
-}
-
-static int trie_graph(const struct trie *const f, const char *const fn) {
-	FILE *fp = 0;
-	int success = 0;
-	/* An additional constraint not present in code: if this is not met,
-	 GraphViz probably can't handle it anyway. */
-	assert(f && fn && f->forest.size <= (unsigned)-1);
-	if(!(fp = fopen(fn, "w"))) goto finally;
-	printf("(trie graph %s)\n", fn);
-	fprintf(fp, "digraph {\n"
-		"\trankdir=TB;\n"
-		"\tnode [shape = box, style = filled, fillcolor = lightsteelblue];\n"
-		"\t// forest size %lu.\n"
-		"\n", (unsigned long)f->forest.size);
-	if(!f->forest.size) {
-		fprintf(fp, "\tlabel = \"empty\";\n");
-	} else {
-		unsigned t = 0;
-		for(t = 0; t < f->forest.size; t++) tree_graph(f, t, fp);
-	}
-	fprintf(fp, "}\n");
-	success = 1;
-finally:
-	if(fp) fclose(fp);
-	return success;
-}
 
 static void trie_unused_coda(void);
 static void trie_unused(void) {
