@@ -193,6 +193,7 @@ static void tree_graph(const struct tree_array *const forest, const size_t t,
 	unsigned long tlu = t;
 	unsigned i, st = 0, lf = 0;
 	struct { unsigned from, left, right, end; } stack[TRIE_ORDER];
+	struct { unsigned left, right; } delay = { 0, 0 };
 	assert(forest && t < forest->size && fp);
 	fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
 		"\t\tstyle = filled; fillcolor = lightgray; label = \"tree %lu\";\n",
@@ -211,66 +212,63 @@ static void tree_graph(const struct tree_array *const forest, const size_t t,
 edges:
 		if(!st) { assert(i == tree->bsize); break; }
 		if(i == stack[st-1].left) { /* It's time to draw a left edge. */
-			if(i == stack[st-1].right) { /* Is a leaf. */
-				if(i==1 && tree->link.uc.left) { /* Goes to another tree. */
-					const size_t link = tree->leaves[0].link;
-					const int dst_branch = link < forest->size
-						&& forest->data[link].bsize;
-					fprintf(fp,
-						"\t\tbranch%lu_%u -> %s%lu_0 "
-						"[color = firebrick, style = dashed];\n",
-						tlu, stack[st-1].from, dst_branch ? "branch" : "leaf",
-						link);
-					/*fprintf(fp,
-								"\t%s%u_%u -> %s%u_%u [ltail=cluster_tree%u, "
-								"lhead=cluster_tree%u, color = firebrick, style = %s];\n",
-								tree->bsize ? "branch" : "leaf", t, parent,
-								link->bsize ? "branch" : "leaf", l, 0,
-								t, l, is_left ? "dashed" : "solid"); */
-					fprintf(fp, "\t\t//goes elsewhere\n");
-				} else { /* Just an ordinary leaf. */
-					fprintf(fp,
-						"\t\tbranch%lu_%u -> leaf%lu_%u "
-						"[style = dashed, color = royalblue];\n",
-						tlu, stack[st-1].from, tlu, lf);
-				}
+			if(i == stack[st-1].right) { /* Leaf. */
+				if(!lf && tree->link.uc.left)
+					delay.left = stack[st-1].from;
+				else fprintf(fp,
+					"\t\tbranch%lu_%u -> leaf%lu_%u "
+					"[style = dashed, color = royalblue];\n",
+					tlu, stack[st-1].from, tlu, lf);
 				lf++;
 			} else { /* Otherwise this is an internal node. */
 				fprintf(fp,
-				"\t\tbranch%lu_%u -> branch%lu_%u [style = dashed];\n",
-				tlu, stack[st-1].from, tlu, i);
+					"\t\tbranch%lu_%u -> branch%lu_%u [style = dashed];\n",
+					tlu, stack[st-1].from, tlu, i);
 			}
 		}
-		if(i == stack[st-1].right) {
-			if(i == stack[st-1].end) fprintf(fp,
-				"\t\tbranch%lu_%u -> leaf%lu_%u [color = royalblue];\n",
-				tlu, stack[st-1].from, tlu, lf++);
-			else fprintf(fp,
-				"\t\tbranch%lu_%u -> branch%lu_%u;\n",
-				tlu, stack[st-1].from, tlu, i);
+		if(i == stack[st-1].right) { /* Right edge. */
+			if(i == stack[st-1].end) { /* Leaf. */
+				if(lf == tree->bsize && tree->link.uc.right)
+					delay.right = stack[st-1].from;
+				else fprintf(fp,
+					"\t\tbranch%lu_%u -> leaf%lu_%u [color = royalblue];\n",
+					tlu, stack[st-1].from, tlu, lf); /* Intra-edge. */
+				lf++;
+			} else {
+				fprintf(fp,
+					"\t\tbranch%lu_%u -> branch%lu_%u;\n",
+					tlu, stack[st-1].from, tlu, i);
+			}
 		}
 		if(i == stack[st-1].end) { st--; goto edges; }
 	}
 	assert(lf == 0 || lf == tree->bsize + 1);
 	fprintf(fp, "\t\t// leaves\n");
-	for(i = 0; i <= tree->bsize; i++) {
-		fprintf(fp, "\t\tleaf%lu_%u [label = ", tlu, i);
-		if(!i && tree->link.uc.left
-			|| i == tree->bsize && tree->link.uc.right) {
-			fprintf(fp, "\"[%lu]\" fillcolor = firebrick",
-				tree->leaves[i].link);
-		} else {
-			fprintf(fp, "\"%s\"", tree->leaves[i].data);
-		}
-		fprintf(fp, "];\n");
-	}
+	for(i = !!tree->link.uc.left; i <= tree->bsize - !!tree->link.uc.right;
+		i++) fprintf(fp, "\t\tleaf%lu_%u [label = \"%s\"];\n",
+			tlu, i, tree->leaves[i].data);
 	fprintf(fp, "\t}\n");
-	/*fprintf(fp,
-				"\t%s%u_%u -> %s%u_%u [ltail=cluster_tree%u, "
-				"lhead=cluster_tree%u, color = firebrick, style = %s];\n",
-				tree->bsize ? "branch" : "leaf", t, parent,
-				link->bsize ? "branch" : "leaf", l, 0,
-				t, l, is_left ? "dashed" : "solid"); */
+	if(tree->link.uc.left) {
+		const size_t link = tree->leaves[0].link;
+		const int dst_branch = link < forest->size && forest->data[link].bsize;
+		fprintf(fp,
+			"\tbranch%lu_%u -> %s%lu_0 ["
+			"lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
+			"color = firebrick, style = dashed];\n",
+			tlu, delay.left, dst_branch ? "branch" : "leaf",
+			(unsigned long)link, tlu, (unsigned long)link);
+	}
+	if(tree->link.uc.right) {
+		const size_t link = tree->leaves[tree->bsize].link;
+		const int dst_branch = link < forest->size && forest->data[link].bsize;
+		fprintf(fp,
+			"\tbranch%lu_%u -> %s%lu_0 ["
+			"lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
+			"color = firebrick];\n",
+			tlu, delay.right, dst_branch ? "branch" : "leaf",
+			(unsigned long)link, tlu, (unsigned long)link);
+	}
+	fprintf(fp, "\n");
 }
 
 static int trie_graph(const struct trie *const trie, const char *const fn) {
@@ -352,21 +350,14 @@ static int trie_split(struct tree_array *const forest,
 	struct { struct tree *old, *new; } tree;
 	struct { unsigned br0, br1, lf; } in_tree[2];
 	struct { unsigned sub; int balance; } choice[2];
-	unsigned i, c, init_left_c; /* Binary index in `in_tree`, `choice`. */
+	unsigned i = 0, c, init_left_c; /* Binary index in `in_tree`, `choice`. */
 	struct branch *branch;
 	tree.old = forest->data + forest_idx;
 	assert(forest && forest_idx < forest->size
 		&& tree.old->bsize == TRIE_BRANCH);
+	sprintf(fn, "graph/split-%lu-%u.gv", forest_idx, 1 + tree.old->bsize);
 	if(!(tree.new = tree_array_new(forest))) return 0;
-
-	/* This is just so that we can print it. */
-	tree.new->bsize = 0, tree.new->link.us = 0, tree.new->leaves[0].data = 0;
-	sprintf(fn, "graph/split-%lu-%u-1.gv", forest_idx, 1 + tree.old->bsize);
-	trie_graph((const struct trie *)forest, fn);
-	sprintf(fn, "graph/split-%lu-%u-2.gv", forest_idx, 1 + tree.old->bsize);
-
 	/* Pick the greedy optimum balance on the outside edge. */
-	i = 0;
 	in_tree[i].br0 = 0, in_tree[i].br1 = tree.old->bsize, in_tree[i].lf = 0;
 	printf("init: in_tree br[%u/%u] %u\n", in_tree[i].br0, in_tree[i].br1, in_tree[i].lf);
 	branch = tree.old->branches + in_tree[i].br0;
