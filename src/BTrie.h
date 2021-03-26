@@ -142,14 +142,17 @@ struct trie { struct tree_array forest; };
 #define TRIE_IDLE { ARRAY_IDLE }
 #endif /* !zero --> */
 
-#if 0
+#if 1
 static void tree_print(const struct tree *const tree, const size_t label) {
+	const unsigned is_root = (unsigned)-1;
 	const unsigned long l = label;
 	unsigned i, size = 0, lf = 0;
-	struct { unsigned br0, br1; } stack[TRIE_BRANCH], *s, *s0, pop;
+	struct { unsigned parent, br0, br1; }
+		stack[TRIE_BRANCH], *s, *s0, pop;
 	const struct branch *branch;
 	assert(tree);
-	stack[size].br0 = 0, stack[size].br1 = tree->bsize, size++;
+	stack[size].parent = is_root, stack[size].br0 = 0,
+		stack[size].br1 = tree->bsize, size++;
 	printf("tree %lu: left:[",
 		(unsigned long)label);
 	for(i = 0; i < tree->bsize; i++)
@@ -158,8 +161,11 @@ static void tree_print(const struct tree *const tree, const size_t label) {
 	do {
 		s = stack + --size;
 		assert(s->br0 <= s->br1);
-		pop.br0 = s->br0, pop.br1 = s->br1;
+		pop.parent = s->parent, pop.br0 = s->br0, pop.br1 = s->br1;
 		if(pop.br0 == pop.br1) { /* Leaf. */
+			if(pop.parent != is_root) {
+				printf("\tbranch%lu_%u -> leaf%lu_%u;\n", l, pop.parent, l, lf);
+			}
 			if(!lf && tree->link.uc.left
 				|| lf == tree->bsize && tree->link.uc.right)
 				printf("\t(leaf %u goes to %lu);\n", lf, tree->leaves[lf].link);
@@ -170,15 +176,20 @@ static void tree_print(const struct tree *const tree, const size_t label) {
 			continue;
 		}
 		branch = tree->branches + pop.br0;
+		if(pop.parent != is_root) {
+			printf("\tbranch%lu_%u -> branch%lu_%u;\n", l, pop.parent, l, pop.br0);
+		}
 		printf("\tbranch%lu_%u [label = \"%u\"...];\n", l, pop.br0, branch->skip);
 		s0 = stack + size++;
+		s0->parent = pop.br0;
 		s0->br0 = pop.br0 + 1 + branch->left;
 		s0->br1 = pop.br1;
-		printf("\tbranch%lu_%u -> right [%u, %u]\n", l, pop.br0, s0->br0, s0->br1);
+		/*printf("\tbranch%lu_%u -> right [%u, %u]\n", l, pop.br0, s0->br0, s0->br1);*/
 		s0 = stack + size++;
+		s0->parent = pop.br0;
 		s0->br0 = pop.br0 + 1;
 		s0->br1 = pop.br0 + 1 + branch->left;
-		printf("\tbranch%lu_%u -> left [%u, %u]\n", l, pop.br0, s0->br0, s0->br1);
+		/*printf("\tbranch%lu_%u -> left [%u, %u]\n", l, pop.br0, s0->br0, s0->br1);*/
 	} while(size);
 }
 #elif 0
