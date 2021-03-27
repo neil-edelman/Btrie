@@ -336,12 +336,12 @@ static int trie_split(struct tree_array *const forest,
 	struct branch *branch;
 	assert(forest && forest_idx < forest->size);
 	if(!(tree.new = tree_array_new(forest))) return 0;
+	tree.new->bsize = 0, tree.new->leaves[0].data = 0, tree.new->link.us = 0;
 	tree.old = forest->data + forest_idx;
 	assert(tree.old->bsize == TRIE_BRANCH); /* > 0. */
 	sprintf(fn, "graph/split-%lu-%u.gv", forest_idx, 1 + tree.old->bsize);
 	printf("__trie_split__ new %lu\n", tree.new - forest->data);
 	tree_print(tree.old, forest_idx);
-
 	/* Left/right edge coming from root. */
 	node[n].br0 = 0, node[n].br1 = tree.old->bsize;
 	branch = tree.old->branches + node[n].br0;
@@ -375,70 +375,48 @@ static int trie_split(struct tree_array *const forest,
 		printf("right edge sub-branches %u, balance |%d| < |%d|\n", edge[e].sub, edge[e].balance, edge[!e].balance);
 	} while(abs(edge[e].balance) < abs(edge[!e].balance));
 	e = !e; /* Gone one too far. */
-	branch = tree.old->branches + node[n].br0;
 	printf("final %s: node br[%u/%u]; edge %u branches, balance %d\n",
 		e_init ? "right" : "left", node[n].br0, node[n].br1,
 		edge[e].sub, edge[e].balance);
-	/* Copy about half into `new`. */
+	/* Copy about half from `old` into `new`. */
+	printf("new bsize %u\n", edge[e].sub);
 	tree.new->bsize = (unsigned short)edge[e].sub;
-	printf("new bsize %u\n", tree.new->bsize);
 	printf("copy nodes [%u,%u) into new.\n", node[n].br0, node[n].br1);
+	memcpy(tree.new->branches, tree.old->branches + node[n].br0,
+		sizeof *tree.old->branches * (node[n].br1 - node[n].br0));
+	{
+		unsigned i;
+		printf("new branches left:[");
+		for(i = 0; i < tree.new->bsize; i++) printf("%s%u", i ? "," : "", tree.new->branches[i].left);
+		printf("].\n");
+	}
 	if(!e_init) { /* Left. */
+		unsigned i;
 		printf("move nodes [%u,%u) to %u.\n", node[n].br1, tree.old->bsize, node[n].br0);
+		memmove(tree.old->branches + node[n].br0,
+			tree.old->branches + node[n].br1,
+			sizeof *tree.old->branches * (tree.old->bsize - node[n].br1));
 		printf("dec old [0,%u) by %u.\n", node[n].br0, edge[e].sub);
+		for(i = 0; i < node[n].br0; i++)
+			tree.old->branches[i].left -= edge[e].sub;
 		printf("copy old leaves [0,%u) into new.\n", edge[e].sub + 1);
+		memcpy(tree.new->leaves, tree.old->leaves,
+			sizeof *tree.old->leaves * (edge[e].sub + 1));
 		printf("move old leaves [%u,%u) to 1.\n", edge[e].sub + 1, tree.old->bsize + 1);
+		memmove(tree.old->leaves + 1, tree.old->leaves + edge[e].sub + 1,
+			sizeof *tree.old->leaves * (tree.old->bsize - edge[e].sub));
 		printf("replace 0 by link to %lu.\n", tree.new - forest->data);
+		tree.old->link.uc.left = 1;
+		tree.old->leaves[0].link = (size_t)(tree.new - forest->data);
 	} else { /* Right. */
 		printf("\n");
 	}
 	printf("old bsize %u -> %u.\n", tree.old->bsize, tree.old->bsize - edge[e].sub);
-	tree.new->bsize = 0; /* remove */
-	tree.new->link.uc.left = 1; /* remove */
+	tree.old->bsize -= edge[e].sub;
 
 	trie_graph((const struct trie *)forest, fn);
 	trie_print((const struct trie *)forest);
 	assert(0);
-#if 0
-	if(!e_init) { /* Left. */
-		tree.new->link.uc.left = tree.old->link.uc.left;
-		tree.new->link.uc.right = 0;
-		tree.old->link.uc.left = 0;
-		{ /* Decrement the `left` counters. */
-			unsigned j;
-			printf("dec %u the first %u.\n", edge[i].sub, node[!i].br0);
-			for(j = 0; j < node[!i].br0; j++)
-				assert(tree.old->branches[j].left >= edge[i].sub),
-				tree.old->branches[j].left -= edge[i].sub;
-		}
-	} else { /* Right. */
-		tree.new->link.uc.left = 0;
-		tree.new->link.uc.right = tree.old->link.uc.right;
-		tree.old->link.uc.right = 0;
-	}
-	printf("memcpy new, %u, [0..%u) @%lu\n",
-		node[!i].br0, edge[i].sub, sizeof *tree.old->branches);
-	/* Move branches to `new`. */
-	memcpy(tree.new->branches, tree.old->branches + node[!i].br0,
-		sizeof *tree.old->branches * edge[i].sub);
-	memmove(tree.old->branches + node[!i].br0,
-		tree.old->branches + node[!i].br1,
-		sizeof *tree.old->branches * (tree.old->bsize - node[!i].br1));
-	/* Move leaves to `new`. */
-	/*memcpy(tree.new->leaves, tree.old->leaves + in_tree[!c].lf,
-		sizeof *tree.old->leaves * (choice[c].sub + 1));
-	memmove(tree.old->leaves, tree.old->leaves + in_tree[c].lf + choice[c].sub + 1,
-		sizeof *tree.old->leaves * (tree.old->bsize - in_tree[!c].br1));
-	assert(tree.old->bsize > choice[c].sub), tree.old->bsize -= choice[c].sub;*/
-	if(!init_i) {
-		tree.old->link.uc.left = 1;
-		tree.old->leaves[0].link = (size_t)(tree.new - forest->data);
-	} else {
-		tree.old->link.uc.right = 1;
-		tree.old->leaves[tree.old->bsize - 1].link
-			= (size_t)(tree.new - forest->data);
-	}
-#endif
 	return 0;
 }
 
@@ -569,45 +547,6 @@ static int trie_is_prefix(const char *a, const char *b) {
 	}
 }
 #endif
-
-
-#if 0
-/** Given branch index `b` in `tree`, calculate (inefficiently) the right
- child branches. Used in <fn:trie_graph>. @order \O(log `size`) */
-static unsigned trie_right(const struct tree *const tree, const unsigned b) {
-	unsigned remaining = tree->bsize, n0 = 0, left, right;
-	assert(tree && b < remaining);
-	for( ; ; ) {
-		left = tree->branches[n0].left;
-		right = remaining - left - 1;
-		assert(left < remaining && right < remaining);
-		if(n0 >= b) break;
-		if(b <= n0 + left) remaining = left, n0++;
-		else remaining = right, n0 += left + 1;
-	}
-	assert(n0 == b);
-	return right;
-}
-
-/** @return Finds (inefficiently) the leftmost leaf index given branch index
- `n` in `tree`. Used in <fn:trie_graph>. */
-static unsigned trie_left_leaf(const struct tree *const tree,
-	const size_t n) {
-	unsigned remaining = tree->bsize, n0 = 0, left, right, i = 0;
-	assert(tree && n < remaining);
-	for( ; ; ) {
-		left = tree->branches[n0].left;
-		right = remaining - left - 1;
-		assert(left < remaining && right < remaining);
-		if(n0 >= n) break;
-		if(n <= n0 + left) remaining = left, n0++;
-		else remaining = right, n0 += left + 1, i += left + 1;
-	}
-	assert(n0 == n);
-	return i;
-}
-#endif
-
 
 static void trie_unused_coda(void);
 static void trie_unused(void) {
