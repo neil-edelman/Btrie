@@ -142,18 +142,6 @@ struct trie { struct tree_array forest; };
 #define TRIE_IDLE { ARRAY_IDLE }
 #endif /* !zero --> */
 
-	/*{
-		unsigned j;
-		assert(size);
-		fputc('\t', stdout);
-		for(j = 0; j < tree->bsize; j++) {
-			if(j) fputc(' ', stdout);
-			if(j == s->br0) fputc('[', stdout);
-			printf("%u", tree->branches[j].left);
-			if(!j && !s->br1 || j == s->br1 - 1) fputc(']', stdout);
-		}
-		fputc('\n', stdout);
-	}*/
 static void tree_print(const struct tree *const tree, const size_t label) {
 	size_t i;
 	assert(tree);
@@ -247,8 +235,8 @@ edges:
 		const size_t link = tree->leaves[0].link;
 		const int dst_branch = link < forest->size && forest->data[link].bsize;
 		fprintf(fp,
-			"\tbranch%lu_%u -> %s%lu_0 ["
-			"lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
+			"\tbranch%lu_%u -> %s%lu_0 "
+			"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
 			"color = firebrick, style = dashed];\n",
 			tlu, delay.left, dst_branch ? "branch" : "leaf",
 			(unsigned long)link, tlu, (unsigned long)link);
@@ -257,15 +245,14 @@ edges:
 		const size_t link = tree->leaves[tree->bsize].link;
 		const int dst_branch = link < forest->size && forest->data[link].bsize;
 		fprintf(fp,
-			"\tbranch%lu_%u -> %s%lu_0 ["
-			"lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
+			"\tbranch%lu_%u -> %s%lu_0 "
+			"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
 			"color = firebrick];\n",
 			tlu, delay.right, dst_branch ? "branch" : "leaf",
 			(unsigned long)link, tlu, (unsigned long)link);
 	}
 	fprintf(fp, "\n");
 }
-
 static int trie_graph(const struct trie *const trie, const char *const fn) {
 	FILE *fp = 0;
 	int success = 0;
@@ -363,6 +350,7 @@ static int trie_split(struct tree_array *const forest,
 	edge[1].sub = tree.old->bsize - 1 - branch->left;
 	edge[1].balance = (int)(tree.old->bsize - 2 * edge[1].sub);
 	printf("top sub-branches %u/%u; balance %d/%d\n", edge[0].sub, edge[1].sub, edge[0].balance, edge[1].balance);
+	/* If right? Less data moves; break symmetry by preferring this. */
 	e = e_init = abs(edge[0].balance) >= abs(edge[1].balance);
 	/* Pick the greedy optimum balance on the outside edge. */
 	if(!e) do { /* Go leftwards. */
@@ -377,21 +365,40 @@ static int trie_split(struct tree_array *const forest,
 		printf("left edge sub-branches %u, balance |%d| < |%d|\n", edge[e].sub, edge[e].balance, edge[!e].balance);
 	} while(abs(edge[e].balance) < abs(edge[!e].balance));
 	else do { /* Go rightwards. Untested. */
-		/*i = !i;
-		node[i].br0 = node[!i].br0 + branch->left + 1;
-		node[i].br1 = node[!i].br1;
-		branch = tree.old->branches + node[i].br0;
-		edge[i].sub = node[i].br1 - node[i].br0 - 1 - branch->left;
-		edge[i].balance = (int)(tree.old->bsize - 2 * edge[i].sub);
-		printf("right br[%u/%u], sub-branches %u, balance |%d| < |%d|\n", node[i].br0, node[i].br1, edge[i].sub, edge[i].balance, edge[!i].balance);*/
-		assert(0);
+		n = !n;
+		node[n].br0 = node[!n].br0 + branch->left + 1;
+		node[n].br1 = node[!n].br1;
+		branch = tree.old->branches + node[n].br0;
+		e = !e;
+		edge[e].sub = node[n].br1 - node[n].br0 - 1 - branch->left;
+		edge[e].balance = (int)(tree.old->bsize - 2 * edge[e].sub);
+		printf("right edge sub-branches %u, balance |%d| < |%d|\n", edge[e].sub, edge[e].balance, edge[!e].balance);
 	} while(abs(edge[e].balance) < abs(edge[!e].balance));
 	e = !e; /* Gone one too far. */
 	branch = tree.old->branches + node[n].br0;
 	printf("final %s: node br[%u/%u]; edge %u branches, balance %d\n",
 		e_init ? "right" : "left", node[n].br0, node[n].br1,
 		edge[e].sub, edge[e].balance);
-	tree.new->bsize = (unsigned short)edge[e].sub, printf("new bsize %u\n", tree.new->bsize);
+	/* Copy about half into `new`. */
+	tree.new->bsize = (unsigned short)edge[e].sub;
+	printf("new bsize %u\n", tree.new->bsize);
+	printf("copy nodes [%u,%u) into new.\n", node[n].br0, node[n].br1);
+	if(!e_init) { /* Left. */
+		printf("move nodes [%u,%u) to %u.\n", node[n].br1, tree.old->bsize, node[n].br0);
+		printf("dec old [0,%u) by %u.\n", node[n].br0, edge[e].sub);
+		printf("copy old leaves [0,%u) into new.\n", edge[e].sub + 1);
+		printf("move old leaves [%u,%u) to 1.\n", edge[e].sub + 1, tree.old->bsize + 1);
+		printf("replace 0 by link to %lu.\n", tree.new - forest->data);
+	} else { /* Right. */
+		printf("\n");
+	}
+	printf("old bsize %u -> %u.\n", tree.old->bsize, tree.old->bsize - edge[e].sub);
+	tree.new->bsize = 0; /* remove */
+	tree.new->link.uc.left = 1; /* remove */
+
+	trie_graph((const struct trie *)forest, fn);
+	trie_print((const struct trie *)forest);
+	assert(0);
 #if 0
 	if(!e_init) { /* Left. */
 		tree.new->link.uc.left = tree.old->link.uc.left;
@@ -431,10 +438,7 @@ static int trie_split(struct tree_array *const forest,
 		tree.old->leaves[tree.old->bsize - 1].link
 			= (size_t)(tree.new - forest->data);
 	}
-	trie_graph((const struct trie *)forest, fn);
-	trie_print((const struct trie *)forest);
 #endif
-	assert(0);
 	return 0;
 }
 
