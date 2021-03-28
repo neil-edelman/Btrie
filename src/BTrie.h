@@ -416,8 +416,7 @@ static int trie_split(struct tree_array *const forest,
 
 	trie_graph((const struct trie *)forest, fn);
 	trie_print((const struct trie *)forest);
-	assert(0);
-	return 0;
+	return 1;
 }
 
 /** @return The leftmost key of the `b` branch of tree `t` in `f`. */
