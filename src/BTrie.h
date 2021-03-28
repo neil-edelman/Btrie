@@ -391,9 +391,10 @@ static int trie_split(struct tree_array *const forest,
 		for(i = 0; i < tree.new->bsize; i++) printf("%s%u", i ? "," : "", tree.new->branches[i].left);
 		printf("].\n");
 	}
+	/* FIXME: pointers to other trees? */
 	if(!e_init) { /* Left. */
 		unsigned i;
-		printf("move nodes [%u,%u) to %u.\n", node[n].br1, tree.old->bsize, node[n].br0);
+		printf("left: move nodes [%u,%u) to %u.\n", node[n].br1, tree.old->bsize, node[n].br0);
 		memmove(tree.old->branches + node[n].br0,
 			tree.old->branches + node[n].br1,
 			sizeof *tree.old->branches * (tree.old->bsize - node[n].br1));
@@ -410,14 +411,19 @@ static int trie_split(struct tree_array *const forest,
 		tree.old->link.uc.left = 1;
 		tree.old->leaves[0].link = (size_t)(tree.new - forest->data);
 	} else { /* Right. */
-		printf("\n");
-		assert(0);
+		printf("right: copy old leaves [%u,%u) into new.\n", node[n].br0, tree.old->bsize + 1);
+		memcpy(tree.new->leaves, tree.old->leaves + node[n].br0,
+			sizeof *tree.old->leaves * (tree.old->bsize + 1 - node[n].br0));
+		printf("replace %u by link to %lu.\n", node[n].br0, tree.new - forest->data);
+		tree.old->link.uc.right = 1;
+		tree.old->leaves[node[n].br0].link = (size_t)(tree.new - forest->data);
+		/*assert(0);*/
 	}
 	printf("old bsize %u -> %u.\n", tree.old->bsize, tree.old->bsize - edge[e].sub);
 	tree.old->bsize -= edge[e].sub;
 
-	trie_graph((const struct trie *)forest, fn);
 	trie_print((const struct trie *)forest);
+	trie_graph((const struct trie *)forest, fn);
 	return 1;
 }
 
