@@ -364,6 +364,7 @@ static int trie_split(struct tree_array *const forest,
 		edge[e].balance = (int)(tree.old->bsize - 2 * edge[e].sub);
 		printf("left edge sub-branches %u, balance |%d| < |%d|\n", edge[e].sub, edge[e].balance, edge[!e].balance);
 	} while(abs(edge[e].balance) < abs(edge[!e].balance));
+		/* Maybe this should be <= to go deeper into the tree? */
 	else do { /* Go rightwards. Untested. */
 		n = !n;
 		node[n].br0 = node[!n].br0 + branch->left + 1;
@@ -410,6 +411,7 @@ static int trie_split(struct tree_array *const forest,
 		tree.old->leaves[0].link = (size_t)(tree.new - forest->data);
 	} else { /* Right. */
 		printf("\n");
+		assert(0);
 	}
 	printf("old bsize %u -> %u.\n", tree.old->bsize, tree.old->bsize - edge[e].sub);
 	tree.old->bsize -= edge[e].sub;
