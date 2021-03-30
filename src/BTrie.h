@@ -303,16 +303,18 @@ static size_t trie_size(const struct trie *const trie) {
 /** @return Success splitting the `tree_idx` of `forest` where the added leaf
  is `tree_i`. */
 static int trie_split(struct trie *const trie, const size_t forest_idx) {
+	/* This is very unoptimised. */
 	char fn[256];
 	struct tree_array *const forest = &trie->forest;
 	struct { struct tree *old, *new; } tree;
 	struct {
-		int min_balance;
-		struct { unsigned br0, br1; } node;
-		struct { unsigned branch; int balance; } edge[2];
+		struct { unsigned branches; int balance; } parent, edge[2];
+		struct { unsigned br0, br1, lf; } node;
 	} go;
-	int min;
+	struct { unsigned br0, br1; } dec;
+	union leaf *leaf;
 	struct branch *branch;
+	unsigned position, move, i;
 	assert(trie && forest_idx < forest->size);
 	/* Create a new tree; after the pointers are stable. */
 	if(!(tree.new = tree_array_new(forest))) return 0;
@@ -323,14 +325,14 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	printf("__split__(%lu)\n", forest_idx), trie_print(trie);
 
 	/* Pick the greedy optimum balance for edge splitting. */
-	go.min_balance = 512; /* Not possible. */
-	go.node.br0 = 0, go.node.br1 = tree.old->bsize;
+	go.parent.branches = go.parent.balance = tree.old->bsize;
+	go.node.br0 = 0, go.node.br1 = tree.old->bsize, go.node.lf = 0;
 	while(go.node.br0 < go.node.br1) {
 		branch = tree.old->branches + go.node.br0;
-		go.edge[0].branch = branch->left;
-		go.edge[0].balance = (int)(tree.old->bsize - 2 * go.edge[0].branch);
-		go.edge[1].branch = go.node.br1 - go.node.br0 - 1 - branch->left;
-		go.edge[1].balance = (int)(tree.old->bsize - 2 * go.edge[1].branch);
+		go.edge[0].branches = branch->left;
+		go.edge[0].balance = (int)(tree.old->bsize - 2 * go.edge[0].branches);
+		go.edge[1].branches = go.node.br1 - go.node.br0 - 1 - branch->left;
+		go.edge[1].balance = (int)(tree.old->bsize - 2 * go.edge[1].branches);
 		{
 			unsigned j = 0, k;
 			while(j < go.node.br0) printf("%u,", branch[j++].left);
@@ -348,24 +350,51 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 			k = j;
 			for( ; j < tree.old->bsize; j++)
 				printf("%s%u", j == k ? "" : ",", branch[j].left);
-			printf("; balance %d/%d.\n", go.edge[0].balance, go.edge[1].balance);
+			printf("; branch %u/%u, balance %d/%d.\n", go.edge[0].branches, go.edge[1].branches, go.edge[0].balance, go.edge[1].balance);
 		}
-		if(abs(go.min_balance) < abs(go.edge[0].balance)) {
-			if(abs(go.min_balance) < abs(go.edge[1].balance)) {
-				printf("current\n");
-				break;
-			} else {
-				printf("right\n");
-			}
+		if(abs(go.parent.balance) < abs(go.edge[0].balance)) {
+			if(abs(go.parent.balance) < abs(go.edge[1].balance)) break;
+			else goto right;
 		} else {
-			if(abs(go.edge[0].balance) < abs(go.edge[1].balance)) {
-				printf("left\n");
-			} else {
-				printf("right 2\n");
-			}
+			if(abs(go.edge[0].balance) < abs(go.edge[1].balance)) goto left;
+			else goto right;
 		}
-		break;
+	left:
+		printf("left\n");
+		go.parent.balance = go.edge[0].balance;
+		go.node.br1 = ++go.node.br0 + branch->left;
+		continue;
+	right:
+		printf("right\n");
+		go.parent.balance = go.edge[1].balance;
+		go.node.br0 += branch->left + 1;
+		go.node.lf  += branch->left + 1;
+		continue;
 	}
+	printf("node br %u/%u lf %u\n", go.node.br0, go.node.br1, go.node.lf);
+	/* Go through again and decrement the `left` by `branch` from above. */
+
+	dec.br0 = 0, dec.br1 = tree.old->bsize;
+	while(dec.br0 < dec.br1) {
+		branch = tree.old->branches + dec.br0;
+		if(dec.br0 + 1 + branch->left <= go.node.br0) {
+			dec.br1 = ++dec.br0 + branch->left;
+			branch->left -=0;
+		} else {
+			dec.br0 += branch->left + 1;
+		}
+	}
+	move = go.node.br1 - go.node.br0 + 1;
+	position = go.node.lf;
+	memcpy(tree.new->leaves, tree.old->leaves + position, sizeof *leaf * move);
+	memmove(tree.old->leaves + position, tree.old->leaves + position + move,
+		sizeof *leaf * (tree.old->bsize + 1 - position - move));
+	move = go.node.br1 - go.node.br0;
+	position = go.node.br0;
+	memcpy(tree.new->branches, tree.old->branches + position, sizeof *branch * move);
+	memmove(tree.old->branches + position, tree.old->branches + position + move,
+		sizeof *branch * (tree.old->bsize - position - move));
+	//for(i = 0; i < go.node.br0; i++) assert(), ;
 	sprintf(fn, "graph/split-%lu-%lu.gv", (unsigned long)trie_size(trie), (unsigned long)forest_idx);
 	trie_graph(trie, fn);
 	assert(0);
@@ -391,7 +420,7 @@ static int trie_add_unique(struct trie *const trie, const char *const key) {
 	static const char zero[TRIE_BITMAP]; /* For `memcmp`. */
 	struct { size_t b, b0, b1; } in_bit;
 	struct { size_t idx, tree_start_bit; } in_forest;
-	struct { unsigned br0, br1, i; } in_tree;
+	struct { unsigned br0, br1, lf; } in_tree;
 	struct tree *tree;
 	struct branch *branch;
 	union leaf *leaf;
@@ -419,7 +448,7 @@ tree:
 			&& !memcmp(&tree->link, zero, TRIE_BITMAP)) is_write = 1,
 			printf("pre-select\n");
 		in_bit.b0 = in_bit.b;
-		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.i = 0;
+		in_tree.br0 = 0, in_tree.br1 = tree->bsize, in_tree.lf = 0;
 		while(in_tree.br0 < in_tree.br1) {
 			branch = tree->branches + in_tree.br0;
 			/* Test all the skip bits. */
@@ -431,24 +460,24 @@ tree:
 				if(is_write) branch->left++;
 			} else {
 				in_tree.br0 += branch->left + 1;
-				in_tree.i   += branch->left + 1;
-				sample = key_sample(forest, in_forest.idx, in_tree.i);
+				in_tree.lf  += branch->left + 1;
+				sample = key_sample(forest, in_forest.idx, in_tree.lf);
 			}
 			in_bit.b0 = in_bit.b1, in_bit.b++;
 		}
-		assert(in_tree.br0 == in_tree.br1 && in_tree.i <= tree->bsize);
-	} while(TRIESTR_TEST(tree->link, in_tree.i)
-		&& (in_forest.idx = tree->leaves[in_tree.i].link, 1));
+		assert(in_tree.br0 == in_tree.br1 && in_tree.lf <= tree->bsize);
+	} while(TRIESTR_TEST(tree->link, in_tree.lf)
+		&& (in_forest.idx = tree->leaves[in_tree.lf].link, 1));
 	/* Got to the leaves; uniqueness guarantees that this is safe. */
 	while(!TRIESTR_DIFF(key, sample, in_bit.b)) in_bit.b++;
 
 leaf:
 	if(TRIESTR_TEST(key, in_bit.b))
-		is_right = 1, in_tree.i += in_tree.br1 - in_tree.br0 + 1;
+		is_right = 1, in_tree.lf += in_tree.br1 - in_tree.br0 + 1;
 	else
 		is_right = 0;
-	printf("insert %s, at index %u bit %lu.\n", key, in_tree.i, in_bit.b);
-	assert(in_tree.i <= tree->bsize + 1u);
+	printf("insert %s, at index %u bit %lu.\n", key, in_tree.lf, in_bit.b);
+	assert(in_tree.lf <= tree->bsize + 1u);
 
 	if(is_write) goto insert;
 	/* If the tree is full, split it. */
@@ -460,9 +489,9 @@ leaf:
 	goto tree;
 
 insert:
-	leaf = tree->leaves + in_tree.i;
-	printf("leaf[%u] memmove(%u, %u, %u)\n", tree->bsize, in_tree.i+1, in_tree.i, tree->bsize + 1 - in_tree.i);
-	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize + 1 - in_tree.i));
+	leaf = tree->leaves + in_tree.lf;
+	printf("leaf[%u] memmove(%u, %u, %u)\n", tree->bsize, in_tree.lf+1, in_tree.lf, tree->bsize + 1 - in_tree.lf);
+	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize + 1 - in_tree.lf));
 	leaf->data = key;
 
 	branch = tree->branches + in_tree.br0;
