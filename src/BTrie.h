@@ -314,7 +314,6 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	struct { unsigned br0, br1; } dec;
 	union leaf *leaf;
 	struct branch *branch;
-	unsigned position, move, i;
 	assert(trie && forest_idx < forest->size);
 	/* Create a new tree; after the pointers are stable. */
 	if(!(tree.new = tree_array_new(forest))) return 0;
@@ -361,43 +360,57 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 		}
 	left:
 		printf("left\n");
+		go.parent.branches = go.edge[0].branches;
 		go.parent.balance = go.edge[0].balance;
 		go.node.br1 = ++go.node.br0 + branch->left;
 		continue;
 	right:
 		printf("right\n");
+		go.parent.branches = go.edge[1].branches;
 		go.parent.balance = go.edge[1].balance;
 		go.node.br0 += branch->left + 1;
 		go.node.lf  += branch->left + 1;
 		continue;
 	}
-	printf("node br %u/%u lf %u\n", go.node.br0, go.node.br1, go.node.lf);
-	/* Go through again and decrement the `left` by `branch` from above. */
-
+	printf("branches %u balance %d\n"
+		"node br %u/%u lf %u\n", go.parent.branches, go.parent.balance,
+		go.node.br0, go.node.br1, go.node.lf);
+	/* Again and decrement the `left` by `parent.branches` from above. */
 	dec.br0 = 0, dec.br1 = tree.old->bsize;
-	while(dec.br0 < dec.br1) {
+	while(dec.br0 < go.node.br0) {
 		branch = tree.old->branches + dec.br0;
-		if(dec.br0 + 1 + branch->left <= go.node.br0) {
+		if(go.node.br0 < dec.br0 + branch->left) {
+			printf("left\n");
 			dec.br1 = ++dec.br0 + branch->left;
-			branch->left -=0;
+			branch->left -= go.parent.branches;
 		} else {
+			printf("right\n");
 			dec.br0 += branch->left + 1;
 		}
 	}
-	move = go.node.br1 - go.node.br0 + 1;
-	position = go.node.lf;
-	memcpy(tree.new->leaves, tree.old->leaves + position, sizeof *leaf * move);
-	memmove(tree.old->leaves + position, tree.old->leaves + position + move,
-		sizeof *leaf * (tree.old->bsize + 1 - position - move));
-	move = go.node.br1 - go.node.br0;
-	position = go.node.br0;
-	memcpy(tree.new->branches, tree.old->branches + position, sizeof *branch * move);
-	memmove(tree.old->branches + position, tree.old->branches + position + move,
-		sizeof *branch * (tree.old->bsize - position - move));
-	//for(i = 0; i < go.node.br0; i++) assert(), ;
-	sprintf(fn, "graph/split-%lu-%lu.gv", (unsigned long)trie_size(trie), (unsigned long)forest_idx);
+	{
+		unsigned j = 0;
+		printf("Now: ");
+		for(j = 0; j < tree.old->bsize; j++) printf("%s%u", j ? "," : "", tree.old->branches[j].left);
+		printf(".\n");
+	}
+	memcpy(tree.new->leaves, tree.old->leaves + go.parent.branches + 1,
+		sizeof *leaf * (go.parent.branches));
+	memmove(tree.old->leaves + go.node.lf,
+		tree.old->leaves + go.node.lf + go.parent.branches + 1,
+		sizeof *leaf * (tree.old->bsize - go.node.lf - go.parent.branches));
+	memcpy(tree.new->branches, tree.old->branches + go.node.br0,
+		sizeof *branch * go.parent.branches);
+	memmove(tree.old->branches + go.node.br0, tree.old->branches + go.node.br0
+		+ go.parent.branches,
+		sizeof *branch * (tree.old->bsize - go.node.br0 - go.parent.branches));
+	tree.old->bsize -= go.parent.branches;
+	tree.new->bsize += go.parent.branches;
+	trie_print(trie);
+	sprintf(fn, "graph/split-%lu-tree-%lu.gv", (unsigned long)trie_size(trie), (unsigned long)forest_idx);
 	trie_graph(trie, fn);
 	assert(0);
+	/* Fixme: Copy the bitmap. */
 	return 1;
 }
 
