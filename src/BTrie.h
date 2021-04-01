@@ -414,7 +414,6 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	trie_print(trie);
 	sprintf(fn, "graph/split-%lu-tree-%lu.gv", (unsigned long)trie_size(trie), (unsigned long)forest_idx);
 	trie_graph(trie, fn);
-	/*assert(0);*/
 	return 1;
 }
 
