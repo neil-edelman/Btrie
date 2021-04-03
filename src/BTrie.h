@@ -205,8 +205,9 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 		if(e.br0 == e.br1) {
 			const union leaf *leaf = tree->leaves + lf;
 			if(TRIESTR_TEST(tree->link, lf)) {
-				fprintf(fp, "\t\t// leaf%lu_%u directed to tree %lu\n",
-					tlu, lf, leaf->link);
+				fprintf(fp,
+					"\t\t// branch%lu_%u -> leaf%lu_%u directed to tree %lu\n",
+					tlu, e.up, tlu, lf, leaf->link);
 			} else {
 				if(e.flags & UP) fprintf(fp,
 					"\t\tbranch%lu_%u -> leaf%lu_%u [%scolor = royalblue];\n",
@@ -248,13 +249,11 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 			if(TRIESTR_TEST(tree->link, lf)) {
 				const int dst_branch = leaf->link < forest->size
 					&& forest->data[leaf->link].bsize;
-				fprintf(fp, "\t// leaf%lu_%u directed to tree %lu\n",
-					tlu, lf, leaf->link);
 				fprintf(fp,
 					"\tbranch%lu_%u -> %s%lu_0 "
 					"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
 					"color = firebrick%s];\n",
-					tlu, lf, dst_branch ? "branch" : "leaf",
+					tlu, e.up, dst_branch ? "branch" : "leaf",
 					(unsigned long)leaf->link, tlu, (unsigned long)leaf->link,
 					e.flags & RIGHT ? "" : ", style = dashed");
 			}
@@ -273,102 +272,6 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 			e1->br1 = e.br0 + 1 + branch->left;
 		}
 	} while(i);
-
-
-
-
-
-
-#if 0
-	if(TRIESTR_TEST(tree->link, i-1)) {
-		const size_t link = tree->leaves[0].link;
-		const int dst_branch = link < forest->size
-			&& forest->data[link].bsize;
-		fprintf(fp,
-			"\tbranch%lu_%u -> %s%lu_0 "
-			"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
-			"color = firebrick, style = dashed];\n",
-			tlu, i, dst_branch ? "branch" : "leaf",
-			(unsigned long)link, tlu, (unsigned long)link);
-	}
-
-	fprintf(fp, "\t\t// branches\n");
-	for(i = 0; i < tree->bsize; ) {
-		fprintf(fp, "\t\tbranch%lu_%u "
-		"[label = \"%u\", shape = none, fillcolor = none];\n",
-		tlu, i, tree->branches[i].skip);
-		stack[st].from = i;
-		stack[st].left = i + 1;
-		stack[st].right = i + 1 + tree->branches[i].left;
-		stack[st].end = st ? i < stack[st - 1].right ?
-			stack[st - 1].right : stack[st - 1].end : tree->bsize;
-		st++, i++;
-edges:
-		if(!st) { assert(i == tree->bsize); break; }
-		if(i == stack[st-1].left) { /* It's time to draw a left edge. */
-			if(i == stack[st-1].right) { /* Leaf. */
-				if(!TRIESTR_TEST(tree->link, i-1)) fprintf(fp,
-					"\t\tbranch%lu_%u -> leaf%lu_%u "
-					"[style = dashed, color = royalblue];\n",
-					tlu, stack[st-1].from, tlu, lf);
-				else fprintf(fp, "\t\t// left inter-edge\n");
-				lf++;
-			} else { /* Otherwise this is an internal node. */
-				fprintf(fp,
-					"\t\tbranch%lu_%u -> branch%lu_%u [style = dashed];\n",
-					tlu, stack[st-1].from, tlu, i);
-			}
-		}
-		if(i == stack[st-1].right) { /* Right edge. */
-			if(i == stack[st-1].end) { /* Leaf. */
-				if(!TRIESTR_TEST(tree->link, i-1)) fprintf(fp,
-					"\t\tbranch%lu_%u -> leaf%lu_%u [color = royalblue];\n",
-					tlu, stack[st-1].from, tlu, lf); /* Intra-edge. */
-				else fprintf(fp, "\t\t// right inter-edge\n");
-				lf++;
-			} else {
-				fprintf(fp,
-					"\t\tbranch%lu_%u -> branch%lu_%u;\n",
-					tlu, stack[st-1].from, tlu, i);
-			}
-		}
-		if(i == stack[st-1].end) { st--; goto edges; }
-	}
-	assert(!st && (!lf || lf == tree->bsize + 1));
-	fprintf(fp, "\t\t// leaves\n");
-	for(i = 0; i <= tree->bsize; i++) {
-		if(!TRIESTR_TEST(tree->link, i))
-			fprintf(fp, "\t\tleaf%lu_%u [label = \"%s\"];\n", tlu, i, tree->leaves[i].data);
-	}
-	fprintf(fp, "\t}\n");
-
-	/* Now print the inter-tree edges. */
-	for(i = 0; i < tree->bsize; ) {
-		stack[st].from = i;
-		stack[st].left = i + 1;
-		stack[st].right = i + 1 + tree->branches[i].left;
-		stack[st].end = st ? i < stack[st - 1].right ?
-			stack[st - 1].right : stack[st - 1].end : tree->bsize;
-		st++, i++;
-edges2:
-		if(!st) { assert(i == tree->bsize); break; }
-		if(i == stack[st-1].left) { /* It's time to draw a left edge. */
-			if(i == stack[st-1].right) { /* Leaf. */
-				if(TRIESTR_TEST(tree->link, i-1)) {
-				}
-				lf++;
-			}
-		}
-		if(i == stack[st-1].right) { /* Right edge. */
-			if(i == stack[st-1].end) { /* Leaf. */
-				if(TRIESTR_TEST(tree->link, i-1)) {
-				}
-				lf++;
-			}
-		}
-		if(i == stack[st-1].end) { st--; goto edges2; }
-	}
-#endif
 	fprintf(fp, "\n");
 }
 static int trie_graph(const struct trie *const trie, const char *const fn) {
