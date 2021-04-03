@@ -166,7 +166,8 @@ static void tree_print(const struct tree *const tree, const size_t label) {
 			lf++;
 		} else {
 			const struct branch *branch = tree->branches + e.left;
-			printf("branch%u skip %u %s\n", e.left, branch->skip, e.is_right ? "right" : "left");
+			printf("branch%u skip %u %s\n", e.left, branch->skip,
+				e.is_right ? "right" : "left");
 			e1 = edge + i++;
 			e1->is_right = 1;
 			e1->left = e.left + 1 + branch->left;
@@ -177,7 +178,6 @@ static void tree_print(const struct tree *const tree, const size_t label) {
 			e1->right = e.left + 1 + branch->left;
 		}
 	} while(i);
-
 }
 static void trie_print(const struct trie *const trie) {
 	size_t t;
@@ -191,15 +191,81 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 	const struct tree_array *const forest = &trie->forest;
 	const struct tree *const tree = forest->data + t;
 	unsigned long tlu = t;
-	unsigned i, st = 0, lf = 0;
-	struct { unsigned from, left, right, end; } stack[TRIE_ORDER];
+	struct { enum { ROOT, UP, RIGHT, UP_RIGHT } flags; unsigned up, br0, br1; }
+		edge[TRIE_BRANCH + TRIE_ORDER], e, *e1;
+	unsigned i, lf = 0;
 	assert(forest && t < forest->size && fp);
+
 	printf("(tree %lu: bmp", tlu);
-	for(i = 0; i < TRIE_BITMAP<<3; i++) printf("%u", !!TRIESTR_TEST(tree->link, i));
+	for(i = 0; i < TRIE_BITMAP<<3; i++)
+		printf("%u", !!TRIESTR_TEST(tree->link, i));
 	printf(")\n");
+
 	fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
 		"\t\tstyle = filled; fillcolor = lightgray; label = \"tree %lu\";\n",
 		tlu, tlu);
+
+	edge[0].flags = ROOT, edge[0].br0 = 0, edge[0].br1 = tree->bsize, i = 1;
+	do {
+		e = edge[--i];
+		if(e.br0 == e.br1) {
+			const union leaf *leaf = tree->leaves + lf;
+			printf("leaf%u %s: ", lf, e.flags & RIGHT ? "right" : "left");
+			if(TRIESTR_TEST(tree->link, lf)) printf("<%lu>", leaf->link);
+			else printf("%s", leaf->data);
+
+			if(TRIESTR_TEST(tree->link, lf)) {
+				fprintf(fp, "\t\t// leaf%lu_%u directed to tree %lu\n",
+					tlu, lf, leaf->link);
+			} else {
+				if(e.flags & UP) fprintf(fp,
+					"\t\tbranch%lu_%u -> leaf%lu_%u [%scolor = royalblue];\n",
+					tlu, e.up, tlu, lf,
+					e.flags & RIGHT ? "" : "style = dashed, ");
+				fprintf(fp, "\t\tleaf%lu_%u [label = \"%s\"];\n",
+					tlu, lf, tree->leaves[lf].data);
+			}
+			lf++;
+		} else {
+			const struct branch *branch = tree->branches + e.br0;
+			printf("branch%u skip %u %s\n", e.br0, branch->skip,
+				e.flags & RIGHT ? "right" : "left");
+			if(e.flags & UP)
+				fprintf(fp, "\t\tbranch%lu_%u -> branch%lu_%u%s;\n",
+				tlu, e.up, tlu, e.br0,
+				e.flags & RIGHT ? "" : " [style = dashed]");
+			fprintf(fp, "\t\tbranch%lu_%u "
+				"[label = \"%u\", shape = none, fillcolor = none];\n",
+				tlu, e.br0, branch->skip);
+
+			e1 = edge + i++;
+			e1->flags = UP | RIGHT;
+			e1->up = e.br0;
+			e1->br0 = e.br0 + 1 + branch->left;
+			e1->br1 = e.br1;
+
+			e1 = edge + i++;
+			e1->flags = UP;
+			e1->up = e.br0;
+			e1->br0 = e.br0 + 1;
+			e1->br1 = e.br0 + 1 + branch->left;
+		}
+	} while(i);
+	fprintf(fp, "\t}\n");
+
+#if 0
+	if(TRIESTR_TEST(tree->link, i-1)) {
+		const size_t link = tree->leaves[0].link;
+		const int dst_branch = link < forest->size
+			&& forest->data[link].bsize;
+		fprintf(fp,
+			"\tbranch%lu_%u -> %s%lu_0 "
+			"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
+			"color = firebrick, style = dashed];\n",
+			tlu, i, dst_branch ? "branch" : "leaf",
+			(unsigned long)link, tlu, (unsigned long)link);
+	}
+
 	fprintf(fp, "\t\t// branches\n");
 	for(i = 0; i < tree->bsize; ) {
 		fprintf(fp, "\t\tbranch%lu_%u "
@@ -293,6 +359,7 @@ edges2:
 		}
 		if(i == stack[st-1].end) { st--; goto edges2; }
 	}
+#endif
 	fprintf(fp, "\n");
 }
 static int trie_graph(const struct trie *const trie, const char *const fn) {
