@@ -193,7 +193,7 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 	unsigned long tlu = t;
 	struct { enum { ROOT, UP, RIGHT, UP_RIGHT } flags; unsigned up, br0, br1; }
 		edge[TRIE_BRANCH + TRIE_ORDER], e, *e1;
-	unsigned i, lf = 0;
+	unsigned i, lf;
 	assert(forest && t < forest->size && fp);
 
 	printf("(tree %lu: bmp", tlu);
@@ -204,16 +204,12 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 	fprintf(fp, "\tsubgraph cluster_tree%lu {\n"
 		"\t\tstyle = filled; fillcolor = lightgray; label = \"tree %lu\";\n",
 		tlu, tlu);
-
 	edge[0].flags = ROOT, edge[0].br0 = 0, edge[0].br1 = tree->bsize, i = 1;
+	lf = 0;
 	do {
 		e = edge[--i];
 		if(e.br0 == e.br1) {
 			const union leaf *leaf = tree->leaves + lf;
-			printf("leaf%u %s: ", lf, e.flags & RIGHT ? "right" : "left");
-			if(TRIESTR_TEST(tree->link, lf)) printf("<%lu>", leaf->link);
-			else printf("%s", leaf->data);
-
 			if(TRIESTR_TEST(tree->link, lf)) {
 				fprintf(fp, "\t\t// leaf%lu_%u directed to tree %lu\n",
 					tlu, lf, leaf->link);
@@ -228,8 +224,6 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 			lf++;
 		} else {
 			const struct branch *branch = tree->branches + e.br0;
-			printf("branch%u skip %u %s\n", e.br0, branch->skip,
-				e.flags & RIGHT ? "right" : "left");
 			if(e.flags & UP)
 				fprintf(fp, "\t\tbranch%lu_%u -> branch%lu_%u%s;\n",
 				tlu, e.up, tlu, e.br0,
@@ -237,13 +231,11 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 			fprintf(fp, "\t\tbranch%lu_%u "
 				"[label = \"%u\", shape = none, fillcolor = none];\n",
 				tlu, e.br0, branch->skip);
-
 			e1 = edge + i++;
 			e1->flags = UP | RIGHT;
 			e1->up = e.br0;
 			e1->br0 = e.br0 + 1 + branch->left;
 			e1->br1 = e.br1;
-
 			e1 = edge + i++;
 			e1->flags = UP;
 			e1->up = e.br0;
@@ -252,6 +244,46 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 		}
 	} while(i);
 	fprintf(fp, "\t}\n");
+	/* Do it a second time for inter-subgraph edges. */
+	edge[0].flags = ROOT, edge[0].br0 = 0, edge[0].br1 = tree->bsize, i = 1;
+	lf = 0;
+	do {
+		e = edge[--i];
+		if(e.br0 == e.br1) {
+			const union leaf *leaf = tree->leaves + lf;
+			if(TRIESTR_TEST(tree->link, lf)) {
+				const int dst_branch = leaf->link < forest->size
+					&& forest->data[leaf->link].bsize;
+				fprintf(fp, "\t// leaf%lu_%u directed to tree %lu\n",
+					tlu, lf, leaf->link);
+				fprintf(fp,
+					"\tbranch%lu_%u -> %s%lu_0 "
+					"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
+					"color = firebrick%s];\n",
+					tlu, lf, dst_branch ? "branch" : "leaf",
+					(unsigned long)leaf->link, tlu, (unsigned long)leaf->link,
+					e.flags & RIGHT ? "" : ", style = dashed");
+			}
+			lf++;
+		} else {
+			const struct branch *branch = tree->branches + e.br0;
+			e1 = edge + i++;
+			e1->flags = UP | RIGHT;
+			e1->up = e.br0;
+			e1->br0 = e.br0 + 1 + branch->left;
+			e1->br1 = e.br1;
+			e1 = edge + i++;
+			e1->flags = UP;
+			e1->up = e.br0;
+			e1->br0 = e.br0 + 1;
+			e1->br1 = e.br0 + 1 + branch->left;
+		}
+	} while(i);
+
+
+
+
+
 
 #if 0
 	if(TRIESTR_TEST(tree->link, i-1)) {
@@ -329,15 +361,6 @@ edges2:
 		if(i == stack[st-1].left) { /* It's time to draw a left edge. */
 			if(i == stack[st-1].right) { /* Leaf. */
 				if(TRIESTR_TEST(tree->link, i-1)) {
-					const size_t link = tree->leaves[0].link;
-					const int dst_branch = link < forest->size
-						&& forest->data[link].bsize;
-					fprintf(fp,
-						"\tbranch%lu_%u -> %s%lu_0 "
-						"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
-						"color = firebrick, style = dashed];\n",
-						tlu, i, dst_branch ? "branch" : "leaf",
-						(unsigned long)link, tlu, (unsigned long)link);
 				}
 				lf++;
 			}
@@ -345,14 +368,6 @@ edges2:
 		if(i == stack[st-1].right) { /* Right edge. */
 			if(i == stack[st-1].end) { /* Leaf. */
 				if(TRIESTR_TEST(tree->link, i-1)) {
-					const size_t link = tree->leaves[tree->bsize].link;
-					const int dst_branch = link < forest->size && forest->data[link].bsize;
-					fprintf(fp,
-						"\tbranch%lu_%u -> %s%lu_0 "
-						"[lhead = cluster_tree%lu, ltail = cluster_tree%lu, "
-						"color = firebrick];\n",
-						tlu, i, dst_branch ? "branch" : "leaf",
-						(unsigned long)link, tlu, (unsigned long)link);
 				}
 				lf++;
 			}
