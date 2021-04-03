@@ -110,8 +110,8 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
 #define TRIE_BITMAP ((TRIE_ORDER - 1) / 8 + 1) /* Bitmap size in bytes. */
 
-/** Fixed-maximum-size, pre-order tree to go in the forest. These are
- semi-implicit in that `right` is all the remaining branches after `left`. */
+/** Non-empty complete binary tree of a fixed-maximum-size. Semi-implicit in
+ that `right` is all the remaining pre-order branches after `left`. */
 struct tree {
 	unsigned short bsize; /* +1 is the rank. */
 	unsigned char link[TRIE_BITMAP]; /* Bitmap associated to leaf. */
@@ -119,17 +119,11 @@ struct tree {
 	union leaf { const char *data; size_t link; } leaves[TRIE_ORDER];
 };
 MIN_ARRAY(tree, struct tree)
-/** Trie-forest. We explicitly refer to leaves, which contain keys, and
- branches, as nodes in the binary-tree. Therefore, to resolve the conflicting
- 'nodes' in B-Tree parlance, a group of contiguous data is a tree in a forest.
- These are all non-empty complete binary trees;
- `branches = (leaves \in [1, order]) - 1`. The forest, as a whole, is a
- complete binary tree except the links to different trees, having
- `\sum_{trees} branches = \sum_{trees} leaves - trees`. B-Trie is a
- variable-length encoding, so the B-Tree rules about balance are not
- maintained, (_ie_, every path through the forest doesn't have to have the
- same number of trees.) By design-choice, the root-tree is always first, and
- link-trees are on top. `empty and !links or links < forest.size`. */
+/** Trie-forest. To resolve the conflicting terminology: a group of contiguous
+ data is a tree in a forest. This is a variable-length encoding, so the B-Tree
+ rules about balance are not maintained, (_ie_, every path through the forest
+ doesn't have to have the same number of trees.) By design-choice, the
+ root-tree is always first. */
 struct trie { struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { ARRAY_IDLE }
