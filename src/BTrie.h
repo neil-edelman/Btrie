@@ -369,6 +369,7 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	struct { unsigned br0, br1; } dec;
 	union leaf *leaf;
 	struct branch *branch;
+	unsigned i;
 	assert(trie && forest_idx < forest->size);
 	/* Create a new tree; after the pointers are stable. */
 	if(!(tree.new = tree_array_new(forest))) return 0;
@@ -449,21 +450,37 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 		for(j = 0; j < tree.old->bsize; j++) printf("%s%u", j ? "," : "", tree.old->branches[j].left);
 		printf(".\n");
 	}
-	assert(go.node.lf + go.parent.branches + 1 <= tree.old->bsize + 1);
+	/* Move leaves. */
+	assert(go.node.lf + go.parent.branches + 1 <= tree.old->bsize + 1
+		&& go.parent.branches /* Even for `TRIE_MAX_LEFT 0`? */);
 	memcpy(tree.new->leaves, tree.old->leaves + go.node.lf,
 		sizeof *leaf * (go.parent.branches + 1));
 	memmove(tree.old->leaves + go.node.lf + 1,
 		tree.old->leaves + go.node.lf + go.parent.branches + 1,
 		sizeof *leaf * (tree.old->bsize - go.node.lf - go.parent.branches));
-	printf("setting %u\n", go.node.lf);
-	TRIESTR_SET(tree.old->link, go.node.lf);
 	tree.old->leaves[go.node.lf].link = (size_t)(tree.new - forest->data);
-	/* Fixme: Copy the bitmap. */
+	/* Move bitmap. */
+	for(i = 0; i <= go.parent.branches; i++)
+		if(TRIESTR_TEST(tree.old->link, i + go.node.lf))
+		TRIESTR_SET(tree.new->link, i);
+	/* Splice. */
+	TRIESTR_SET(tree.old->link, go.node.lf); /* New link. */
+	for(i = go.node.lf + go.parent.branches + 1; i <= tree.old->bsize; i++) {
+		if(TRIESTR_TEST(tree.old->link, i))
+			TRIESTR_SET(tree.old->link, i - go.parent.branches);
+		else
+			TRIESTR_CLEAR(tree.old->link, i - go.parent.branches);
+	}
+	/* Clear. */
+	for(i = go.node.lf + go.parent.branches + 1; i <= tree.old->bsize; i++)
+		TRIESTR_CLEAR(tree.old->link, i);
+	/* Move branches. */
 	assert(go.node.br1 - go.node.br0 == go.parent.branches);
 	memcpy(tree.new->branches, tree.old->branches + go.node.br0,
 		sizeof *branch * go.parent.branches);
 	memmove(tree.old->branches + go.node.br0, tree.old->branches
 		+ go.node.br1, sizeof *branch * (tree.old->bsize - go.node.br1));
+	/* Move branch size. */
 	tree.old->bsize -= go.parent.branches;
 	tree.new->bsize += go.parent.branches;
 	trie_print(trie);
