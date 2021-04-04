@@ -148,30 +148,6 @@ static void tree_print(const struct tree *const tree, const size_t label) {
 		else printf("%s", tree->leaves[i].data);
 	}
 	printf("].\n");
-	edge[0].is_right = 0, edge[0].left = 0, edge[0].right = tree->bsize, i = 1;
-	do {
-		e = edge[--i];
-		if(e.left == e.right) {
-			const union leaf *leaf = tree->leaves + lf;
-			printf("leaf%u %s: ", lf, e.is_right ? "right" : "left");
-			if(TRIESTR_TEST(tree->link, lf)) printf("<%lu>", leaf->link);
-			else printf("%s", leaf->data);
-			printf("\n");
-			lf++;
-		} else {
-			const struct branch *branch = tree->branches + e.left;
-			printf("branch%u skip %u %s\n", e.left, branch->skip,
-				e.is_right ? "right" : "left");
-			e1 = edge + i++;
-			e1->is_right = 1;
-			e1->left = e.left + 1 + branch->left;
-			e1->right = e.right;
-			e1 = edge + i++;
-			e1->is_right = 0;
-			e1->left = e.left + 1;
-			e1->right = e.left + 1 + branch->left;
-		}
-	} while(i);
 }
 static void trie_print(const struct trie *const trie) {
 	size_t t;
@@ -382,7 +358,7 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	assert(tree.old->bsize == TRIE_BRANCH);
 	printf("__split__(%lu)\n", forest_idx), trie_print(trie);
 
-	/* Pick the greedy optimum balance for edge splitting. */
+	/* Greedy optimum balance by gradient descent for edge splitting. */
 	go.parent.branches = go.parent.balance = tree.old->bsize;
 	go.node.br0 = 0, go.node.br1 = tree.old->bsize, go.node.lf = 0;
 	while(go.node.br0 < go.node.br1) {
@@ -391,25 +367,6 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 		go.edge[0].balance = (int)(tree.old->bsize - 2 * go.edge[0].branches);
 		go.edge[1].branches = go.node.br1 - go.node.br0 - 1 - branch->left;
 		go.edge[1].balance = (int)(tree.old->bsize - 2 * go.edge[1].branches);
-		{
-			unsigned j = 0, k;
-			while(j < go.node.br0) printf("%u,", branch[j++].left);
-			printf("[");
-			while(j < go.node.br0 + 1) printf("%u,", branch[j++].left);
-			printf("(");
-			k = j;
-			for( ; j < go.node.br0 + 1 + branch->left; j++)
-				printf("%s%u", j == k ? "" : ",", branch[j].left);
-			printf(")(");
-			k = j;
-			for( ; j < go.node.br1; j++)
-				printf("%s%u", j == k ? "" : ",", branch[j].left);
-			printf(")]");
-			k = j;
-			for( ; j < tree.old->bsize; j++)
-				printf("%s%u", j == k ? "" : ",", branch[j].left);
-			printf("; branch %u/%u, balance %d/%d.\n", go.edge[0].branches, go.edge[1].branches, go.edge[0].balance, go.edge[1].balance);
-		}
 		if(abs(go.parent.balance) < abs(go.edge[0].balance)) {
 			if(abs(go.parent.balance) < abs(go.edge[1].balance)) break;
 			else goto right;
@@ -418,32 +375,25 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 			else goto right;
 		}
 	left:
-		printf("left\n");
 		go.parent.branches = go.edge[0].branches;
 		go.parent.balance = go.edge[0].balance;
 		go.node.br1 = ++go.node.br0 + branch->left;
 		continue;
 	right:
-		printf("right\n");
 		go.parent.branches = go.edge[1].branches;
 		go.parent.balance = go.edge[1].balance;
 		go.node.br0 += branch->left + 1;
 		go.node.lf  += branch->left + 1;
 		continue;
 	}
-	printf("branches %u balance %d\n"
-		"node br %u/%u lf %u\n", go.parent.branches, go.parent.balance,
-		go.node.br0, go.node.br1, go.node.lf);
 	/* Again and decrement the `left` by `parent.branches` from above. */
 	dec.br0 = 0, dec.br1 = tree.old->bsize;
 	while(dec.br0 < go.node.br0) {
 		branch = tree.old->branches + dec.br0;
 		if(go.node.br0 < dec.br0 + branch->left) {
-			printf("left\n");
 			dec.br1 = ++dec.br0 + branch->left;
 			branch->left -= go.parent.branches;
 		} else {
-			printf("right\n");
 			dec.br0 += branch->left + 1;
 		}
 	}
@@ -600,6 +550,8 @@ insert:
 	tree->bsize++;
 
 	tree_print(tree, in_forest.idx);
+
+	/* Ohshit, this is also going to change the things. */
 
 	return 1;
 }
