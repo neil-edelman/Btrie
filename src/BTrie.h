@@ -191,7 +191,10 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 	assert(forest && t < forest->size && fp);
 
 	printf("(tree %lu: bmp", tlu);
-	for(i = 0; i < TRIE_BITMAP<<3; i++)
+	for(i = 0; i <= tree->bsize; i++)
+		printf("%u", !!TRIESTR_TEST(tree->link, i));
+	printf("'");
+	for( ; i < TRIE_BITMAP<<3; i++)
 		printf("%u", !!TRIESTR_TEST(tree->link, i));
 	printf(")\n");
 
@@ -444,12 +447,6 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 			dec.br0 += branch->left + 1;
 		}
 	}
-	{
-		unsigned j = 0;
-		printf("Now: ");
-		for(j = 0; j < tree.old->bsize; j++) printf("%s%u", j ? "," : "", tree.old->branches[j].left);
-		printf(".\n");
-	}
 	/* Move leaves. */
 	assert(go.node.lf + go.parent.branches + 1 <= tree.old->bsize + 1
 		&& go.parent.branches /* Even for `TRIE_MAX_LEFT 0`? */);
@@ -459,21 +456,24 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 		tree.old->leaves + go.node.lf + go.parent.branches + 1,
 		sizeof *leaf * (tree.old->bsize - go.node.lf - go.parent.branches));
 	tree.old->leaves[go.node.lf].link = (size_t)(tree.new - forest->data);
-	/* Move bitmap. */
-	for(i = 0; i <= go.parent.branches; i++)
-		if(TRIESTR_TEST(tree.old->link, i + go.node.lf))
-		TRIESTR_SET(tree.new->link, i);
-	/* Splice. */
-	TRIESTR_SET(tree.old->link, go.node.lf); /* New link. */
-	for(i = go.node.lf + go.parent.branches + 1; i <= tree.old->bsize; i++) {
-		if(TRIESTR_TEST(tree.old->link, i))
-			TRIESTR_SET(tree.old->link, i - go.parent.branches);
-		else
-			TRIESTR_CLEAR(tree.old->link, i - go.parent.branches);
+	{
+		unsigned char *const bmp0 = tree.old->link,
+			*const bmp1 = tree.new->link;
+		const unsigned offset = go.node.lf, extent = go.parent.branches + 1,
+			size = tree.old->bsize + 1;
+		assert(offset + extent <= size);
+		for(i = 0; i <= tree.old->bsize; i++) printf("%u", !!TRIESTR_TEST(bmp0, i)); printf("<-bmp0\n");
+		for(i = 0; i <= tree.new->bsize; i++) printf("%u", !!TRIESTR_TEST(bmp1, i)); printf("<-bmp1\n");
+		for(i = 0; i < extent; i++) /* Move bitmap into 0-filled. */
+			if(TRIESTR_TEST(bmp0, i + offset)) TRIESTR_SET(bmp1, i);
+		TRIESTR_SET(bmp0, offset); /* New link. */
+		for(i = offset + 1 + extent; i < size; i++) /* Splice. */
+			if(TRIESTR_TEST(bmp0, i)) TRIESTR_SET(bmp0, i - extent + 1);
+			else TRIESTR_CLEAR(bmp0, i - extent + 1);
+		for(i = offset + 1 + extent; i < size; i++) TRIESTR_CLEAR(bmp0, i);
+		for(i = 0; i <= tree.old->bsize - go.parent.branches; i++) printf("%u", !!TRIESTR_TEST(bmp0, i)); printf("<-bmp0\n");
+		for(i = 0; i <= tree.new->bsize + go.parent.branches; i++) printf("%u", !!TRIESTR_TEST(bmp1, i)); printf("<-bmp1\n");
 	}
-	/* Clear. */
-	for(i = go.node.lf + go.parent.branches + 1; i <= tree.old->bsize; i++)
-		TRIESTR_CLEAR(tree.old->link, i);
 	/* Move branches. */
 	assert(go.node.br1 - go.node.br0 == go.parent.branches);
 	memcpy(tree.new->branches, tree.old->branches + go.node.br0,
