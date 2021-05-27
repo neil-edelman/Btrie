@@ -7,9 +7,9 @@
 
  An <tag:<N>trie> is a prefix, or digital tree, and is isomorphic to
  <Morrison, 1968 PATRICiA>. It is an index of pointers-to-`N` entries in a
- (semi)-compact [binary radix trie](https://en.wikipedia.org/wiki/Radix_tree).
- While in a trie, the key part of the entry is a necessarily read-only,
- null-terminated, (including
+ (semi)-compact [binary radix trie](https://en.wikipedia.org/wiki/Radix_tree)
+ that has a (while in the trie) read-only key consisting of a null-terminated
+ byte-string, (including
  [modified UTF-8](https://en.wikipedia.org/wiki/UTF-8#Modified_UTF-8),) that
  uniquely identifies the data.
 
@@ -17,7 +17,7 @@
  <Bayer, McCreight, 1972 Large (B-Trees)>. The order is the maximum branching
  factor of a tree, as <Knuth, 1998 Art 3>.
 
- @fixme Strings can not be more then 8 characters the same. Have a leaf value
+ @fixme Strings can not be more than 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code. Maybe 8+8+8...?
 
  @param[TRIE_NAME, TRIE_ENTRY]
@@ -52,6 +52,9 @@
 #include <errno.h>  /* errno */
 #include <assert.h> /* assert */
 #include <stdlib.h> /* abs */
+
+
+/* Contents of `min_array.h`. */
 
 /* X-macro for a minimal dynamic array. */
 #define ARRAY_IDLE { 0, 0, 0 }
@@ -101,6 +104,9 @@ static type *name##_array_new(struct name##_array *const a) { \
 	return name##_array_reserve(a, a->size + 1) ? a->data + a->size++ : 0; \
 }
 
+
+/* Helper macros. */
+
 #define TRIESTR_TEST(a, i) (a[(i) >> 3] & (128 >> ((i) & 7)))
 #define TRIESTR_DIFF(a, b, i) ((a[(i) >> 3] ^ b[(i) >> 3]) & (128 >> ((i) & 7)))
 #define TRIESTR_SET(a, i) (a[(i) >> 3] |= 128 >> ((i) & 7))
@@ -109,6 +115,9 @@ static type *name##_array_new(struct name##_array *const a) { \
 #define TRIE_BRANCH (TRIE_MAX_LEFT + 1) /* Maximum branches. */
 #define TRIE_ORDER (TRIE_BRANCH + 1) /* Maximum branching factor / leaves. */
 #define TRIE_BITMAP ((TRIE_ORDER - 1) / 8 + 1) /* Bitmap size in bytes. */
+
+
+/* Define data type. */
 
 /** Non-empty complete binary tree of a fixed-maximum-size. Semi-implicit in
  that `right` is all the remaining pre-order branches after `left`. */
@@ -128,6 +137,9 @@ struct trie { struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
 #define TRIE_IDLE { ARRAY_IDLE }
 #endif /* !zero --> */
+
+
+/* Debug functions. */
 
 static void tree_print(const struct tree *const tree, const size_t label) {
 	size_t i;
@@ -274,6 +286,93 @@ finally:
 	return success;
 }
 
+
+/* Bitmap helper functions. */
+
+/* Inserts 0 in the bit-addressed `insert` in the `bitmap` having `bitmap_size`
+ bytes. All the other bits past the `insert` are shifted right, and one bit at
+ the end is erased. */
+static void bmp_insert(unsigned char *const bitmap, const unsigned insert) {
+	size_t insert_byte = insert >> 3;
+	unsigned char a = bitmap[insert_byte], carry = a & 1, b = a >> 1;
+	const unsigned char mask = 127 >> (insert & 7);
+	assert(bitmap && insert_byte < TRIE_BITMAP);
+	/* <https://graphics.stanford.edu/~seander/bithacks.html#MaskedMerge>. */
+	bitmap[insert_byte++] = (a ^ ((a ^ b) & mask)) & ~(mask + 1);
+	while(insert_byte < TRIE_BITMAP) {
+		a = bitmap[insert_byte];
+		b = (unsigned char)(carry << 7) | (a >> 1);
+		carry = a & 1;
+		bitmap[insert_byte++] = b;
+	}
+}
+
+/** Moves and overwrites `bmp_b` size `bmp_b_size` with `bit_offset` to
+ `bit_range` from `bmp_a` size `bmp_a_size`. `bmp_a` has the moved part
+ replaced with a single bit, '1'. `bit_range` cannot be zero. */
+static void bmp_move(unsigned char *const bmp_a, const unsigned bit_offset,
+	const unsigned bit_range, unsigned char *const bmp_b) {
+	assert(bmp_a && bmp_b);
+	assert(bit_range && bit_offset + bit_range <= TRIE_BITMAP << 3);
+
+	{ /* Copy a contiguous subset of bits from `a` into the new array, `b`. */
+		const unsigned a = bit_offset >> 3, a_bit = bit_offset & 7;
+		unsigned b, rest;
+		for(b = 0, rest = bit_range; rest > 8; b++, rest -= 8) bmp_b[b]
+			= (bmp_a[a + b] << a_bit) | (bmp_a[a + b + 1] >> (8 - a_bit));
+		bmp_b[b] = bmp_a[a + b] << a_bit;
+		if(a + b < (bit_offset + bit_range) >> 3)
+			bmp_b[b] |= (bmp_a[a + b + 1] >> (8 - a_bit));
+		bmp_b[b++] &= ~(255 >> rest);
+		memset(bmp_b + b, 0, TRIE_BITMAP - b);
+	}
+
+	{ /* Replace copied bits from `a` with '1'. */
+		const unsigned a = bit_offset >> 3, a_bit = bit_offset & 7;
+		bmp_a[a] |= 128 >> a_bit;
+	}
+
+	{ /* Move bits back in `a`. */
+		unsigned a0 = (bit_offset + 1) >> 3, a1 = (bit_offset + bit_range) >> 3;
+		const unsigned a0_bit = (bit_offset + 1) & 7,
+			a1_bit = (bit_offset + bit_range) & 7;
+		assert(a0 <= TRIE_BITMAP && a1 <= TRIE_BITMAP);
+		if(a1 == TRIE_BITMAP) { /* On the trailing edge. */
+			assert(!a1_bit);
+			if(a0 == TRIE_BITMAP) assert(!a0_bit); /* Extreme right. */
+			else bmp_a[a0++] &= 255 << 8-a0_bit;
+		} else if(a1_bit < a0_bit) { /* Inversion of shift. */
+			const unsigned shift = a0_bit - a1_bit;
+			assert(a0 < a1);
+			{
+				const unsigned char bmp_a_a0 = bmp_a[a0],
+					bmp_a_a1 = bmp_a[a1] >> shift,
+					mask = 255 >> a0_bit;
+				bmp_a[a0] = bmp_a_a0 ^ ((bmp_a_a0 ^ bmp_a_a1) & mask);
+			}
+			while(++a0, ++a1 < TRIE_BITMAP)
+				bmp_a[a0] = bmp_a[a1 - 1] << 8-shift | bmp_a[a1] >> shift;
+			bmp_a[a0++] = bmp_a[a1 - 1] << 8-shift;
+		} else { /* Shift right or zero. */
+			const unsigned shift = a1_bit - a0_bit;
+			assert(a0 <= a1);
+			{
+				const unsigned char bmp_a_a0 = bmp_a[a0],
+					bmp_a_a1 = bmp_a[a1] << shift,
+					mask = 255 >> a0_bit;
+				bmp_a[a0] = bmp_a_a0 ^ ((bmp_a_a0 ^ bmp_a_a1) & mask);
+			}
+			while(++a0, ++a1 < TRIE_BITMAP)
+				bmp_a[a0 - 1] |= bmp_a[a1] >> 8-shift,
+				bmp_a[a0] = bmp_a[a1] << shift;
+		}
+		memset(bmp_a + a0, 0, TRIE_BITMAP - a0);
+	}
+}
+
+
+/* Exported functions. */
+
 /** New idle `f`. */
 static void trie(struct trie *const t) { assert(t), tree_array(&t->forest); }
 
@@ -346,15 +445,13 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	struct branch *branch;
 	unsigned i;
 	assert(trie && forest_idx < forest->size);
-
+	printf("__split__(%lu)\n", forest_idx), trie_print(trie);
 	/* Create a new tree; after the pointers are stable. */
 	if(!(tree.new = tree_array_new(forest))) return 0;
 	tree.new->bsize = 0, memset(&tree.new->link, 0, TRIE_BITMAP),
 		tree.new->leaves[0].data = 0;
 	tree.old = forest->data + forest_idx;
 	assert(tree.old->bsize == TRIE_BRANCH);
-	printf("__split__(%lu)\n", forest_idx), trie_print(trie);
-
 	/* Gradient descent on balance (right _vs_ left.) */
 	go.parent.branches = go.parent.balance = tree.old->bsize;
 	go.node.br0 = 0, go.node.br1 = tree.old->bsize, go.node.lf = 0;
@@ -383,7 +480,7 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 		go.node.lf  += branch->left + 1;
 		continue;
 	}
-	/* Exactly following path except decrement `left` by `parent.branches`. */
+	/* Re-following path except decrement `left` by `parent.branches`. */
 	dec.br0 = 0, dec.br1 = tree.old->bsize;
 	while(dec.br0 < go.node.br0) {
 		branch = tree.old->branches + dec.br0;
@@ -525,10 +622,9 @@ leaf:
 
 insert:
 	leaf = tree->leaves + in_tree.lf;
-	printf("leaf[%u] memmove(%u, %u, %u)\n", tree->bsize, in_tree.lf+1, in_tree.lf, tree->bsize + 1 - in_tree.lf);
 	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize + 1 - in_tree.lf));
 	leaf->data = key;
-	{ /* Keep the bitmap and the leaf array synchronised. */
+	{ /* Synchronise the leaf array and bitmap. */
 		unsigned leaf_byte = in_tree.lf >> 3;
 		unsigned char a = tree->link[leaf_byte], carry = a & 1, b = a >> 1;
 		const unsigned char mask = 127 >> (in_tree.lf & 7);
@@ -542,7 +638,6 @@ insert:
 		}
 	}
 	branch = tree->branches + in_tree.br0;
-	printf("branch[%u] memmove(%u, %u, %u)\n", tree->bsize, in_tree.br0+1, in_tree.br0, tree->bsize - in_tree.br0);
 	if(in_tree.br0 != in_tree.br1) { /* Split `skip` with the existing branch. */
 		assert(in_bit.b0 <= in_bit.b
 			&& in_bit.b + !in_tree.br0 <= in_bit.b0 + branch->skip);
@@ -576,6 +671,9 @@ static int trie_add(struct trie *const trie, const char *const key)
 		if(*a != *b) return *b == '\0';
 	}
 }*/
+
+
+/* Silence unused function warnings. */
 
 static void trie_unused_coda(void);
 static void trie_unused(void) {
