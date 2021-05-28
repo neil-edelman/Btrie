@@ -169,13 +169,13 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 	FILE *const fp) {
 	const struct tree_array *const forest = &trie->forest;
 	const struct tree *const tree = forest->data + t;
-	unsigned long tlu = t;
+	unsigned long tlu = t, tslu = forest->size;
 	struct { enum { ROOT, UP, RIGHT, UP_RIGHT } flags; unsigned up, br0, br1; }
 		edge[TRIE_BRANCH + TRIE_ORDER], e, *e1;
 	unsigned i, lf;
 	assert(forest && t < forest->size && fp);
 
-	printf("(tree %lu: bmp", tlu);
+	printf("(tree %lu/%lu: bmp", tlu, tslu);
 	for(i = 0; i <= tree->bsize; i++)
 		printf("%u", !!TRIESTR_TEST(tree->link, i));
 	printf("'");
@@ -192,19 +192,22 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 		e = edge[--i];
 		if(e.br0 == e.br1) {
 			const union leaf *leaf = tree->leaves + lf;
+			assert(lf < tree->bsize + 1);
 			if(TRIESTR_TEST(tree->link, lf)) {
 				fprintf(fp,
 					"\t\t// branch%lu_%u -> leaf%lu_%u directed to tree %lu\n",
 					tlu, e.up, tlu, lf, leaf->link);
 			} else {
+				const void *str;
 				if(e.flags & UP) fprintf(fp,
 					"\t\tbranch%lu_%u -> leaf%lu_%u [%scolor = royalblue];\n",
 					tlu, e.up, tlu, lf,
 					e.flags & RIGHT ? "" : "style = dashed, ");
+				str = tree->leaves[lf].data;
 				fprintf(fp, "\t\tleaf%lu_%u [label = \"%s\"];\n",
 					tlu, lf, tree->leaves[lf].data);
 			}
-			lf++;
+			if(++lf > tree->bsize) break;
 		} else {
 			const struct branch *branch = tree->branches + e.br0;
 			if(e.flags & UP)
@@ -443,9 +446,8 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	struct { unsigned br0, br1; } dec;
 	union leaf *leaf;
 	struct branch *branch;
-	unsigned i;
 	assert(trie && forest_idx < forest->size);
-	printf("__split__(%lu)\n", forest_idx), trie_print(trie);
+	printf("__split__ tree %lu\n", forest_idx), trie_print(trie); printf("go!\n");
 	/* Create a new tree; after the pointers are stable. */
 	if(!(tree.new = tree_array_new(forest))) return 0;
 	tree.new->bsize = 0, memset(&tree.new->link, 0, TRIE_BITMAP),
@@ -480,7 +482,14 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 		go.node.lf  += branch->left + 1;
 		continue;
 	}
+	/* __split__ tree 2
+	 tree 2: skip[0,0,1,0], left[3,1,0,0], leaf[p, q, u, v, <3>].
+	 ...
+	 tree 2: skip[0,0,1], left[3,1,0], leaf[p, q, <4>, <3>].
+	 tree 4: skip[0], left[0], leaf[u, v].
+	 The tree doesn't have the branch's left updated. */
 	/* Re-following path except decrement `left` by `parent.branches`. */
+	printf("branches %lu.\n", go.parent.branches);
 	dec.br0 = 0, dec.br1 = tree.old->bsize;
 	while(dec.br0 < go.node.br0) {
 		branch = tree.old->branches + dec.br0;
@@ -500,24 +509,7 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 		tree.old->leaves + go.node.lf + go.parent.branches + 1,
 		sizeof *leaf * (tree.old->bsize - go.node.lf - go.parent.branches));
 	tree.old->leaves[go.node.lf].link = (size_t)(tree.new - forest->data);
-	{
-		unsigned char *const bmp0 = tree.old->link,
-			*const bmp1 = tree.new->link;
-		const unsigned offset = go.node.lf, extent = go.parent.branches + 1,
-			size = tree.old->bsize + 1;
-		assert(offset + extent <= size);
-		for(i = 0; i <= tree.old->bsize; i++) printf("%u", !!TRIESTR_TEST(bmp0, i)); printf("<-bmp0\n");
-		for(i = 0; i <= tree.new->bsize; i++) printf("%u", !!TRIESTR_TEST(bmp1, i)); printf("<-bmp1\n");
-		for(i = 0; i < extent; i++) /* Move bitmap into 0-filled. */
-			if(TRIESTR_TEST(bmp0, i + offset)) TRIESTR_SET(bmp1, i);
-		TRIESTR_SET(bmp0, offset); /* New link. */
-		for(i = offset + 1 + extent; i < size; i++) /* Splice. */
-			if(TRIESTR_TEST(bmp0, i)) TRIESTR_SET(bmp0, i - extent + 1);
-			else TRIESTR_CLEAR(bmp0, i - extent + 1);
-		for(i = offset + 1 + extent; i < size; i++) TRIESTR_CLEAR(bmp0, i);
-		for(i = 0; i <= tree.old->bsize - go.parent.branches; i++) printf("%u", !!TRIESTR_TEST(bmp0, i)); printf("<-bmp0\n");
-		for(i = 0; i <= tree.new->bsize + go.parent.branches; i++) printf("%u", !!TRIESTR_TEST(bmp1, i)); printf("<-bmp1\n");
-	}
+	bmp_move(tree.old->link, go.node.lf, go.parent.branches + 1, tree.new->link);
 	/* Move branches. */
 	assert(go.node.br1 - go.node.br0 == go.parent.branches);
 	memcpy(tree.new->branches, tree.old->branches + go.node.br0,
@@ -528,6 +520,7 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	tree.old->bsize -= go.parent.branches;
 	tree.new->bsize += go.parent.branches;
 	trie_print(trie);
+	printf("tree splitting complete\n");
 	sprintf(fn, "graph/split-%lu-tree-%lu.gv", (unsigned long)trie_size(trie), (unsigned long)forest_idx);
 	trie_graph(trie, fn);
 	return 1;
@@ -624,19 +617,7 @@ insert:
 	leaf = tree->leaves + in_tree.lf;
 	memmove(leaf + 1, leaf, sizeof *leaf * (tree->bsize + 1 - in_tree.lf));
 	leaf->data = key;
-	{ /* Synchronise the leaf array and bitmap. */
-		unsigned leaf_byte = in_tree.lf >> 3;
-		unsigned char a = tree->link[leaf_byte], carry = a & 1, b = a >> 1;
-		const unsigned char mask = 127 >> (in_tree.lf & 7);
-		/* <https://graphics.stanford.edu/~seander/bithacks.html#MaskedMerge> */
-		tree->link[leaf_byte++] = (a ^ ((a ^ b) & mask)) & ~(mask + 1);
-		while(leaf_byte < TRIE_BITMAP) {
-			a = tree->link[leaf_byte];
-			b = (unsigned char)(carry << 7) | (a >> 1);
-			carry = a & 1;
-			tree->link[leaf_byte++] = b;
-		}
-	}
+	bmp_insert(tree->link, in_tree.lf);
 	branch = tree->branches + in_tree.br0;
 	if(in_tree.br0 != in_tree.br1) { /* Split `skip` with the existing branch. */
 		assert(in_bit.b0 <= in_bit.b
