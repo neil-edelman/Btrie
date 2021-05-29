@@ -613,8 +613,11 @@ leaf:
 	assert(tree->bsize <= TRIE_BRANCH);
 	if(tree->bsize == TRIE_BRANCH
 		&& !trie_split(trie, in_forest.idx)) return 0;
+	printf("Returning to \"%s\" in tree %lu, reminder:\n", key, in_forest.idx);
+	trie_print(trie);
 	/* Now we are sure that this tree is the one getting modified. */
 	is_write = 1, in_bit.b = in_forest.tree_start_bit;
+	/* ERROR: is_write maybe not, we don't know: there are two trees now. */
 	goto tree;
 
 insert:
