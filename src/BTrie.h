@@ -237,6 +237,7 @@ static void tree_graph(const struct trie *const trie, const size_t t,
 		e = edge[--i];
 		if(e.br0 == e.br1) {
 			const union leaf *leaf = tree->leaves + lf;
+			assert(lf < tree->bsize + 1);
 			if(TRIESTR_TEST(tree->link, lf)) {
 				const int dst_branch = leaf->link < forest->size
 					&& forest->data[leaf->link].bsize;
@@ -489,15 +490,18 @@ static int trie_split(struct trie *const trie, const size_t forest_idx) {
 	 tree 4: skip[0], left[0], leaf[u, v].
 	 The tree doesn't have the branch's left updated. */
 	/* Re-following path except decrement `left` by `parent.branches`. */
-	printf("branches %lu.\n", go.parent.branches);
+	printf("branches %u.\n", go.parent.branches);
 	dec.br0 = 0, dec.br1 = tree.old->bsize;
 	while(dec.br0 < go.node.br0) {
 		branch = tree.old->branches + dec.br0;
-		if(go.node.br0 < dec.br0 + branch->left) {
+		printf("considering branch %u: is %u less than %u + %u.\n", dec.br0, go.node.br0, dec.br0, branch->left);
+		if(go.node.br0 <= dec.br0 + branch->left) {
 			dec.br1 = ++dec.br0 + branch->left;
 			branch->left -= go.parent.branches;
+			printf("dec\n");
 		} else {
 			dec.br0 += branch->left + 1;
+			printf("no\n");
 		}
 	}
 	/* Move leaves. */
