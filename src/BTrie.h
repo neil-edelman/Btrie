@@ -293,9 +293,8 @@ finally:
 
 /* Bitmap helper functions. */
 
-/* Inserts 0 in the bit-addressed `insert` in the `bitmap` having `bitmap_size`
- bytes. All the other bits past the `insert` are shifted right, and one bit at
- the end is erased. */
+/* Inserts 0 in the bit-addressed `insert` in the `bitmap`. All the other bits
+ past the `insert` are shifted right, and one bit at the end is erased. */
 static void bmp_insert(unsigned char *const bitmap, const unsigned insert) {
 	size_t insert_byte = insert >> 3;
 	unsigned char a = bitmap[insert_byte], carry = a & 1, b = a >> 1;
@@ -311,9 +310,9 @@ static void bmp_insert(unsigned char *const bitmap, const unsigned insert) {
 	}
 }
 
-/** Moves and overwrites `bmp_b` size `bmp_b_size` with `bit_offset` to
- `bit_range` from `bmp_a` size `bmp_a_size`. `bmp_a` has the moved part
- replaced with a single bit, '1'. `bit_range` cannot be zero. */
+/** Moves and overwrites `bmp_b` with `bit_offset` range `bit_range` from
+ `bmp_a`. `bmp_a` has the moved part replaced with a single bit, '1'.
+ `bit_range` cannot be zero. */
 static void bmp_move(unsigned char *const bmp_a, const unsigned bit_offset,
 	const unsigned bit_range, unsigned char *const bmp_b) {
 	assert(bmp_a && bmp_b);
