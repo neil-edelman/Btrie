@@ -13,9 +13,9 @@
  [modified UTF-8](https://en.wikipedia.org/wiki/UTF-8#Modified_UTF-8),) that
  uniquely identifies the data.
 
- Internally, it is a dynamic array of fixed-size-trees in a linked-forest, as
- <Bayer, McCreight, 1972 Large (B-Trees)>. The order is the maximum branching
- factor of a tree, as <Knuth, 1998 Art 3>.
+ Internally, it is a dynamic array of binary fixed-size-trees in a
+ linked-forest, as <Bayer, McCreight, 1972 Large (B-Trees)>. The order is the
+ maximum branching factor of a tree, as <Knuth, 1998 Art 3>.
 
  @fixme Strings can not be more than 8 characters the same. Have a leaf value
  255->leaf.bigskip+255. May double the code. Maybe 8+8+8...?
@@ -48,28 +48,31 @@
  @cf [Pool](https://github.com/neil-edelman/Pool)
  @cf [Set](https://github.com/neil-edelman/Set) */
 
+#include <stdlib.h> /* size_t realloc free abs */
 #include <string.h> /* size_t memmove strcmp memcpy */
 #include <errno.h>  /* errno */
 #include <assert.h> /* assert */
-#include <stdlib.h> /* abs */
 
 
-/* Contents of `min_array.h`. */
+/** Macro for a generic minimal dynamic array: `MIN_ARRAY(name, type)`, where
+ `name` is an identifier prefix that satisfies `C` naming conventions when
+ mangled and `type` is defined tag-type associated therewith. When expanding
+ the array, resizing may be necessary and incurs amortised cost; any pointers
+ to this memory may become stale. */
 
-/* X-macro for a minimal dynamic array. */
-#define ARRAY_IDLE { 0, 0, 0 }
+#define MIN_ARRAY_IDLE { 0, 0, 0 }
 #define MIN_ARRAY(name, type) \
 struct name##_array { type *data; size_t size, capacity; }; \
-/* Initialises `a` to idle. */ \
+/** Initialises `a` to idle. */ \
 static void name##_array(struct name##_array *const a) \
-	{ assert(a), a->data = 0, a->capacity = a->size = 0; } \
-/* Destroys `a` and returns it to idle. */ \
+	{ assert(a); a->data = 0; a->capacity = a->size = 0; } \
+/** Destroys `a` and returns it to idle. */ \
 static void name##_array_(struct name##_array *const a) \
-	{ assert(a), free(a->data), name##_array(a); } \
-/* Ensures `min_capacity` of `a`. @param[min_capacity] If zero, does nothing.
+	{ assert(a); free(a->data); name##_array(a); } \
+/** Ensures `min_capacity` of `a`. @param[min_capacity] If zero, does nothing.
 @return Success; otherwise, `errno` will be set.
 @throws[ERANGE] Tried allocating more then can fit in `size_t` or `realloc`
-doesn't follow POSIX. @throws[realloc] */ \
+doesn't follow POSIX. @throws[realloc, ERANGE] */ \
 static int name##_array_reserve(struct name##_array *const a, \
 	const size_t min_capacity) { \
 	size_t c0; \
@@ -77,6 +80,7 @@ static int name##_array_reserve(struct name##_array *const a, \
 	const size_t max_size = (size_t)-1 / sizeof *a->data; \
 	assert(a); \
 	if(a->data) { \
+		assert(a->size <= a->capacity); \
 		if(min_capacity <= a->capacity) return 1; \
 		c0 = a->capacity; \
 	} else { /* Idle. */ \
@@ -95,14 +99,37 @@ static int name##_array_reserve(struct name##_array *const a, \
 	a->data = data, a->capacity = c0; \
 	return 1; \
 } \
-/* @return Push back a new un-initialized datum of `a`.
+/** Makes sure that there are at least `buffer` contiguous, un-initialised,
+ elements at the back of `a`.
+ @return A pointer to the start of `buffer` elements, namely `a.data + a.size`.
+ If `a` is idle and `buffer` is zero, a null pointer is returned, otherwise
+ null indicates an error and `errno` will be set. @throws[realloc, ERANGE] */ \
+static type *name##_array_buffer(struct name##_array *const a, \
+	const size_t buffer) { \
+	assert(a); \
+	if(a->size > (size_t)-1 - buffer) \
+		{ errno = ERANGE; return 0; } /* Unlikely. */ \
+	if(!name##_array_reserve(a, a->size + buffer)) return 0; \
+	return a->data ? a->data + a->size : 0; \
+} \
+/** Adds `n` to the size of `a`; this must be no more than the maximum
+ remaining buffer capacity, set by <fn:<name>_array_buffer>. */ \
+static void name##_array_emplace(struct name##_array *const a, \
+	const size_t n) { \
+	assert(a && a->capacity >= a->size && n <= a->capacity - a->size); \
+	a->size += n; \
+} \
+/** @return Push back a new un-initialized datum of `a`.
  @throws[realloc, ERANGE] */ \
 static type *name##_array_new(struct name##_array *const a) { \
-	assert(a); \
-	if(sizeof *a->data == 1 && a->size >= (size_t)-1) \
-		{ errno = ERANGE; return 0; } /* Unlikely. */ \
-	return name##_array_reserve(a, a->size + 1) ? a->data + a->size++ : 0; \
-}
+	type *const data = name##_array_buffer(a, 1); \
+	return data ? name##_array_emplace(a, 1), data : 0; \
+} \
+/* It's perfectly valid that these functions are not used. */ \
+static void name##_unused_coda(void); static void name##_unused(void) { \
+	name##_array(0); name##_array_buffer(0, 0); name##_array_emplace(0, 0); \
+	name##_array_new(0); name##_unused_coda(); } \
+static void name##_unused_coda(void) { name##_unused(); }
 
 
 /* Helper macros. */
@@ -135,7 +162,7 @@ MIN_ARRAY(tree, struct tree)
  root-tree is always first. */
 struct trie { struct tree_array forest; };
 #ifndef TRIE_IDLE /* <!-- !zero */
-#define TRIE_IDLE { ARRAY_IDLE }
+#define TRIE_IDLE { MIN_ARRAY_IDLE }
 #endif /* !zero --> */
 
 
