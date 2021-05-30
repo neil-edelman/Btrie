@@ -124,12 +124,7 @@ static void name##_array_emplace(struct name##_array *const a, \
 static type *name##_array_new(struct name##_array *const a) { \
 	type *const data = name##_array_buffer(a, 1); \
 	return data ? name##_array_emplace(a, 1), data : 0; \
-} \
-/* It's perfectly valid that these functions are not used. */ \
-static void name##_unused_coda(void); static void name##_unused(void) { \
-	name##_array(0); name##_array_buffer(0, 0); name##_array_emplace(0, 0); \
-	name##_array_new(0); name##_unused_coda(); } \
-static void name##_unused_coda(void) { name##_unused(); }
+}
 
 
 /* Helper macros. */
