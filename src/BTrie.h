@@ -554,7 +554,7 @@ static int trie_add_unique(struct trie *const trie, const char *const key) {
 	struct branch *branch;
 	union leaf *leaf;
 	const char *sample;
-	int is_write, is_right;
+	int is_write, is_right, is_split = 0;
 
 	assert(forest && key);
 	printf("___*** ADD \"%s\" ***\n", key);
@@ -611,13 +611,17 @@ leaf:
 	if(is_write) goto insert;
 	/* If the tree is full, split it. */
 	assert(tree->bsize <= TRIE_BRANCH);
-	if(tree->bsize == TRIE_BRANCH
-		&& !trie_split(trie, in_forest.idx)) return 0;
-	printf("Returning to \"%s\" in tree %lu, reminder:\n", key, in_forest.idx);
-	trie_print(trie);
-	/* Now we are sure that this tree is the one getting modified. */
-	is_write = 1, in_bit.b = in_forest.tree_start_bit;
-	/* ERROR: is_write maybe not, we don't know: there are two trees now. */
+	if(tree->bsize == TRIE_BRANCH) {
+		printf("Splitting tree %lu.\n", in_forest.idx);
+		assert(!is_split);
+		if(!trie_split(trie, in_forest.idx)) return 0;
+		assert(is_split = 1);
+		printf("Returning to \"%s\" in tree %lu.\n", key, in_forest.idx);
+	} else {
+		/* Now we are sure that this tree is the one getting modified. */
+		is_write = 1;
+	}
+	in_bit.b = in_forest.tree_start_bit;
 	goto tree;
 
 insert:
