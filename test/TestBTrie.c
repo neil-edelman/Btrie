@@ -34,11 +34,10 @@ static void test_basic(void) {
 
 	for(i = 0; i < words_size; i++) {
 		w = words[i];
-		printf("test_basic \"%s\":\n", w);
 		s = trie_get(&t, w)/*, assert(!s) fails for duplicates*/;
 		r = trie_add(&t, w)/*, assert(r)*/;
 		assert(!s ^ !r);
-		printf("test_basic including \"%s\":\n", w);
+		printf("test_basic \"%s\":\n", w);
 		trie_print(&t);
 		sprintf(fn, "graph/word-%lu.gv", (unsigned long)i + 1);
 		r = trie_graph(&t, fn), assert(r);
