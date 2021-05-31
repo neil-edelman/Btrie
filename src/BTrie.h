@@ -6,12 +6,11 @@
  ![Example of trie.](../web/trie.png)
 
  An <tag:<N>trie> is a prefix, or digital tree, and is isomorphic to
- <Morrison, 1968 PATRICiA>. It is an index of pointers-to-`N` entries in a
- (semi)-compact [binary radix trie](https://en.wikipedia.org/wiki/Radix_tree)
- that has a (while in the trie) read-only key consisting of a null-terminated
- byte-string, (including
- [modified UTF-8](https://en.wikipedia.org/wiki/UTF-8#Modified_UTF-8),) that
- uniquely identifies the data.
+ <Morrison, 1968 PATRICiA>. It is an index of pointers-to-`N` entries and
+ associated unique sorted key that identifies the pointer in a (semi)-compact
+ [binary radix trie](https://en.wikipedia.org/wiki/Radix_tree). This key is a
+ null-terminated read-only (while inside the trie) byte-string, (including
+ [modified UTF-8](https://en.wikipedia.org/wiki/UTF-8#Modified_UTF-8).)
 
  Internally, it is a dynamic array of binary fixed-size-trees in a
  linked-forest, as <Bayer, McCreight, 1972 Large (B-Trees)>. The order is the
